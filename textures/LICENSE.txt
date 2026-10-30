@@ -1,0 +1,328 @@
+Leoncraft 2 - block textures
+
+The block textures in this folder (terrain_albedo.png, terrain_normal.png,
+terrain_spec.png, manifest.json, the colour maps, the sun and the moon) are
+made from four resource packs: the two below, and REFI Textures and
+Bauniclonia (credited under "Item pictures"), which give the terrain, wood,
+ore, glass and farm blocks listed in tools/leoncraft2/data/open_pack_map.json.
+Each texture's colours are then moved towards the game's own average and
+spread (six numbers per texture, colour statistics only, no pixels).
+
+- "Pixel Perfection Community Edition", by XSSheep and its contributors
+  (block, item and entity textures for blocks up to Minecraft 1.16):
+  https://github.com/Athemis/PixelPerfectionCE
+- "Pixel Perfection Legacy", by Nova_Wostra, continuing XSSheep's Pixel
+  Perfection (block textures for blocks added since 1.17: deepslate, tuff,
+  calcite, copper, cherry, mangrove, bamboo, pale oak, mud, sculk, resin,
+  sulfur, cinnabar, poplar and the rest):
+  https://modrinth.com/resourcepack/pixel-perfection-legacy
+  https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
+
+Both are licensed under Creative Commons Attribution-ShareAlike 4.0
+International (CC BY-SA 4.0): https://creativecommons.org/licenses/by-sa/4.0/
+(Modrinth lists Pixel Perfection Legacy as CC BY 4.0; it continues XSSheep's
+CC BY-SA 4.0 work and its source is the GitHub repository above, the one its
+Modrinth page links, checked October 2026, so the stricter BY-SA terms are
+followed.) Only the block textures of Pixel Perfection Legacy are used.
+
+Changes made for Leoncraft 2:
+- the textures are packed into vertical strips of 16x16 layers (one layer per
+  texture, or per animation frame); textures wider than 16 pixels are
+  downscaled (nearest neighbour), and only a few keep their animation;
+- a few blocks drawn from small atlases (sniffer egg) use a 16x16 piece of
+  them;
+- chests, beds, shulker boxes, signs and mob heads are drawn by the game as
+  boxes, so their faces are cut out of Pixel Perfection CE's entity textures
+  and composed into 16x16 layers (chest, trapped chest, ender chest, the 16
+  beds and shulker boxes, eight sign woods, five mob heads); the player head
+  is taken from the game's own original skin (below);
+- famous_paintings.jpg is not from a pack: every painting shows a famous
+  painting in the public domain, photographed, from Wikimedia Commons, at the
+  game's sizes for its paintings; PAINTINGS.txt lists each one with its page
+  there. (No pack's paintings are used: Pixel Perfection Legacy's are copies
+  of the game's.)
+- beacon_beam.png, the beacon's beam, is Pixel Perfection CE's own
+  (textures/entity/beacon_beam.png in that pack); checked pixel by pixel
+  against the game's beam (October 2026), it shares none of its pixels;
+  end_gateway_beam.png is that pack's end gateway beam, checked the same way;
+- conduit/ (an active conduit's cage, its shell and its eye) is Pixel
+  Perfection Legacy's own entity art for the conduit, checked pixel by pixel
+  against the game's (October 2026): none of its pixels. (Pixel Perfection
+  CE's conduit pictures are copies of the game's and are not used.) The
+  conduit's current is drawn by Leoncraft's own code;
+- the shelf mushroom's two pictures, small and large, are Pixel Perfection
+  Legacy's (shelf_mushroom_stage0 and stage1, 32 x 32), kept in
+  js/render/shelfmushroom.js and cut there into one layer per face of the
+  game's models; checked pixel by pixel against the game's two pictures
+  (October 2026), they share none of its pixels;
+- the chiseled bookshelf's front, empty and full, is Pixel Perfection
+  Legacy's chiseled bookshelf side with its six panels opened (empty) or
+  filled with the books of Pixel Perfection CE's bookshelf (the packs' own
+  fronts follow the game's too closely to use);
+- copper chests are the wooden chest recoloured to each copper stage; signs
+  for mangrove, cherry, pale oak, poplar and bamboo are the oak sign
+  recoloured to their planks; pointed dripstone is Legacy's sulfur spike
+  recoloured to dripstone; the dragon head is a stand-in made from obsidian;
+- door icons the packs do not have are made from the door's own two halves;
+- normal, ambient-occlusion, height, smoothness, reflectance, subsurface and
+  emission maps are generated from each texture (terrain_normal.png and
+  terrain_spec.png).
+
+Checked against the game's own files. A pixel-by-pixel comparison with
+Minecraft's textures (October 2026) found that a few files in the packs are
+Mojang's pixels, copied or traced, although the packs carry an open licence.
+None of those are used:
+- the nether portal and the wither rose come from Pixel Perfection Legacy,
+  whose versions are original, instead of Pixel Perfection CE;
+- the tripwire, the end portal, the jigsaw and structure blocks and the grass
+  colour map are our own drawings (tools/leoncraft2/art/);
+- the conduit, bamboo, honey block, dried ghast, seven of the glazed
+  terracottas and parts of the loom, grindstone, lectern, cherry log top, bee
+  nest, beehive, bell, smithing table, chiseled bookshelf and TNT are
+  replaced by the packs' own original textures, recoloured or reused.
+After that, no layer of the atlas matches a Mojang texture, in whole or in
+part. Like any texture pack, many textures still follow the layout of the
+block they show (a log's rings, a lantern's frame).
+
+These textures, including the changes above, are shared under the same
+licence, CC BY-SA 4.0.
+
+The scripts that build them: tools/leoncraft2/build_textures.py and
+tools/leoncraft2/build_blocks.py in the portfolio repository.
+
+
+Player skin (skin/default.png)
+
+The default player skin is original work drawn for Leoncraft 2 (pixel by
+pixel, from scratch). It is not based on, traced from or recoloured from any
+Mojang skin or any other existing skin. It may be used under the same
+licence as the rest of this folder, CC BY-SA 4.0.
+
+
+GUI art (gui/)
+
+The menu and inventory art in gui/ (icons.png, options_background.png,
+world_selection.png, checkbox.png,
+container/inventory.png, container/creative_inventory/, and widgets.png
+apart from the parts named below) is copied unchanged from
+"Pixel Perfection Community Edition", by XSSheep and its contributors:
+https://github.com/Athemis/PixelPerfectionCE
+licensed CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/
+The pack's title art (its logo and edition wordmarks), presets and panorama
+are not used.
+
+gui/font_ascii.png is that pack's font sheet (font/ascii.png), recoloured from
+its cream colour to white so the game can tint it; it stays CC BY-SA 4.0.
+
+In widgets.png the hotbar, the hotbar selector, the buttons and the language
+button, and all of accessibility.png, are our own grey drawings
+(tools/leoncraft2/build_gui.py), not the pack's gold ones.
+
+In icons.png the crosshair, the hearts (empty, flashing, red, poisoned,
+withered, gold and frozen, and the same again in their hardcore look), the air
+bubbles, the hunger shanks and the experience bar are our own drawings
+(tools/leoncraft2/build_hud.py) over the pack's; the rest of that sheet
+(armour, the signal bars and the other rows) is the pack's. The frost over the
+screen while freezing is our own too, drawn in code by js/ui/hud.js.
+
+gui/mob_effect.png, the status effect pictures, is our own: every picture is
+drawn in code from simple shapes by tools/leoncraft2/build_effects.py, which
+reads no pack and no game file. (They were compared with the game's own after
+drawing, October 2026: three pixels in all forty are the same. Pixel
+Perfection CE's effect pictures include copies of the game's and are not
+used.)
+
+The LEONCRAFT title and its BROWSER EDITION plate are drawn by the game at load
+(js/ui/menus.js) from our own letter shapes, the stone texture above and the
+font sheet above, so they are adapted material under CC BY-SA 4.0 as well.
+
+The container screens in gui/container/ (crafting_table.png, generic_54.png,
+furnace.png, smoker.png, blast_furnace.png, hopper.png, dispenser.png,
+shulker_box.png, enchanting_table.png, anvil.png, grindstone.png,
+smithing.png, stonecutter.png, brewing_stand.png) are copied unchanged from
+Pixel Perfection Community Edition, CC BY-SA 4.0. A pixel comparison with the
+game's own screens (every version from 1.16.5 to 26.3) found none of them to be
+copies; they share the game's layout, as any pack's screens do.
+
+
+Item pictures (items.png)
+
+items.png holds one 16x16 picture for every item that is not a block (in the
+order of ITEM_TEX in js/itemdata.js), the eleven sizes of the experience orb,
+the separate layers of the pictures the game colours per item (a potion's
+liquid, a tipped arrow's head, dyed leather and wolf armour), the frames of
+the compass, the recovery compass and the clock, and the bow's and the
+crossbow's pictures while drawn, loading and loaded. Made by
+tools/leoncraft2/build_items.py from six resource packs:
+
+- "REFI Textures", by MysticTempest (drawn from scratch for Luanti games,
+  Mineclonia among them): dyes, coal, raw ores, food, the compass, the mace,
+  the trident and others:
+  https://content.luanti.org/packages/MysticTempest/refi_textures/
+  https://github.com/MysticTempest/REFI_Textures
+- "Refined Textures", by awuuwa (a fork of REFI Textures): bread, cooked
+  chicken and the glistering melon slice:
+  https://content.luanti.org/packages/awuuwa/refined_textures/
+- "Bauniclonia", by Mirtilo (the Baunilha pack made for Mineclonia): every
+  tool, the helmets, chestplates and boots, the ingots, gems, meat, buckets
+  and others:
+  https://content.luanti.org/packages/Mirtilo/bauniclonia/
+  https://codeberg.org/mirtilo/Bauniclonia
+- "Pixel ImPerfection", by bramaudi (Pixel Perfection reworked for
+  Mineclonia): the blaze rod, the totem of undying, the heart of the sea and
+  magma cream:
+  https://content.luanti.org/packages/bramaudi/pixel_imperfection/
+  https://codeberg.org/mineclonia/pixel_imperfection
+- Pixel Perfection Community Edition (the experience orb, from its entity
+  textures; the shield, drawn from its shield texture; the leather, chainmail,
+  iron and diamond leggings; and items up to 1.16), and
+- Pixel Perfection Legacy (the copper, golden and netherite leggings, spawn
+  eggs, boats, harnesses, bundles, books,
+  music discs, smithing templates, pottery sherds, spears and the rest),
+
+all six CC BY-SA 4.0 (links above). tools/leoncraft2/data/item_sources.json
+names the pack and file of every picture. Changes: each picture's colours are
+moved towards the game's own average and spread (six numbers per picture,
+colour statistics only, no pixels), fully or partly; many pictures are moved
+by up to two pixels, and some mirrored, so they sit in the slot where the
+game's picture does (the outlines compared; nothing is redrawn); the
+compass, the recovery compass and the clock keep every frame (the game turns
+them to where they point), and the bow and crossbow their drawn and loaded
+pictures (Bauniclonia's numbered bow frames, Pixel Perfection CE's
+crossbow), other animated pictures their first frame; wider
+pictures are scaled down to 16x16;
+leather horse armour, potions, tipped arrows, firework stars and filled maps
+are their grey base tinted the default colour with their overlay on top (as
+the game draws them), and dyed leather is the grey leather (Bauniclonia's,
+or Pixel Perfection CE's for the leggings) times the dye; the shield is
+Pixel Perfection CE's shield texture drawn as the game draws the shield in
+the inventory (its model, turned and scaled the same way); the turtle helmet
+is Bauniclonia's leather cap recoloured; the poplar boat and poplar boat
+with chest (26.3's poplar, which no pack draws) are Pixel Perfection Legacy's
+oak boat and oak boat with chest, their hull recoloured to the poplar planks
+of these textures (the chest left as it is); the enchanted golden apple and the
+debug stick use the golden apple and the stick.
+
+Armour trims on the item pictures (js/trims.js) are coloured with Pixel
+Perfection Legacy's trim material palettes (eight colours a material, from
+its trims/color_palettes, CC BY-SA 4.0); where the trim sits on each piece is
+drawn for these pictures, not taken from a pack (Legacy's own boots trim
+picture is the game's, and its helmet trim shares a third of the game's
+pixels, so neither is used).
+
+Checked against the game's own files. Every chosen picture was compared with
+Minecraft's own item texture (26.1.2, October 2026): no more than 15% of its
+pixels may equal the game's at any shift of up to two pixels or mirrored, and
+its fine detail may not follow the game's (a correlation of 0.75 as drawn, or
+0.9 at any shift), where the pack drew it and where it is placed; traces keep
+the detail even when recoloured. These were found to be Mojang's pixels,
+copied or traced, and are not used: from Pixel Perfection CE, dried kelp,
+leather horse armour, the turtle scute, the pufferfish and the trident, and
+the compass (from both packs). Nothing turtle is taken from Pixel Perfection
+CE (its turtle armour texture is the game's own), and the FamiliarCraft pack
+was not used at all (its tools are the game's, recoloured). Pixel
+ImPerfection's book follows the game's detail, so no book is taken from that
+pack. Where a full colour pull would raise a drawing's detail past the limit
+(the tipped arrow, among others), it is pulled partly or not at all;
+item_sources.json gives the strength of every picture.
+
+A wider check (October 2026) compared every picture with every item picture
+of every game version from 1.8.9 to 26.1.2, whatever its name: identical
+pixels, and the inside detail wherever the outline is all but the same. It
+found more pack files that are the game's pictures, and none of them is
+used: Pixel Perfection CE's phantom membrane and nautilus shell (the 1.13
+pictures, recoloured) and the "Miner 16px" pack's ingots (the 1.8 ingot; its
+apple has the 1.8 outline too), so nothing at all is taken from Miner 16px.
+A further check (October 2026) turned every picture all eight ways (a
+quarter turn at a time, and mirrored) as well as moving it, and compared each
+pack's leggings, helmets, boots, chestplates, sticks, pickaxes and swords with
+the game's the same way. Bauniclonia's leggings were the only leggings of
+more than forty drawings to share the game's leggings outline exactly, with
+their inside detail following it too (0.83 to 0.88, the same signature as the
+traced ingots), so the leggings now come from Pixel Perfection CE and Legacy
+instead. The stick is the plain corner-to-corner stick of the older game; the
+tools that remain flagged line up with the game's along their handle only,
+after being placed in the slot (each pack drawing on its own scores 0.6 to
+0.65, like the other packs' tools). Like any texture pack, many pictures still
+follow the layout of the object they show (a sword is a diagonal blade over a
+guard and grip).
+
+These pictures, including the changes above, are shared under the same
+licence, CC BY-SA 4.0.
+
+
+Armour textures (armor/)
+
+armor/<material>_layer_1.png (helmet, chestplate and boots) and
+_layer_2.png (leggings), 64x32 in the game's layout, for leather, chainmail,
+iron, gold, diamond, netherite and copper, and turtle_layer_1.png (the turtle
+shell), are made by tools/leoncraft2/build_items.py from Bauniclonia's armour
+textures (by Mirtilo, CC BY-SA 4.0, link above). Changes: each piece's own
+64x32 sheet is laid onto one sheet per layer, the helmet moved from the hat
+box to the head box; the colours are moved towards the game's own average and
+spread (colour statistics only); leather_layer_N.png is Bauniclonia's grey
+leather, to be multiplied by the dye colour (or by undyed leather's brown),
+and leather_layer_2_overlay.png the leggings' waist band in Bauniclonia's
+undyed leather (not recoloured), drawn over the dyed leggings untinted; the
+turtle shell is the leather cap recoloured green. A pixel comparison with the
+game's own armour textures found none of these to be copies, also patch by
+patch (every 8x8 patch turned all eight ways against every patch of every
+version's armour). Pixel Perfection CE's turtle
+texture is identical to the game's, and Pixel Perfection Legacy's turtle and
+REFI Textures' iron, gold and diamond armour follow the game's too closely, so
+none of those are used.
+
+These textures, including the changes above, are shared under the same
+licence, CC BY-SA 4.0.
+
+
+Player skins (skin/gallery/)
+----------------------------
+The Skin Gallery's skins and Leon Network's people are from the Minetest
+skin database, https://skinsdb.terraqueststudios.net/ (each with its number
+there), used unchanged under the licence each author gave it:
+
+  flower_girl.png: "Flower Girl" by julito, CC BY-SA 3.0 (#1028)
+  super_nerd.png: "Super Nerd" by julito, CC BY-SA 3.0 (#1029)
+  mermaid.png: "Mermaid 2" by loupicate, CC BY-SA 4.0 (#1036)
+  space_noob.png: "Space Noob" by Fedora P, CC BY-SA 3.0 (#1037)
+  good_bot.png: "good bot" by julito, CC BY-SA 3.0 (#1054)
+  scientist.png: "Scientist MB" by Néoprene, CC BY-SA 3.0 (#1138)
+  ice_boy.png: "Ice Boy :3" by ElMehdiBen, CC BY-SA 3.0 (#1210)
+  trader.png: "Trader 1" by TenPlus1, CC BY-SA 3.0 (#1258)
+  pastel_girl.png: "Pastel Girl" by Rin0002, CC BY 3.0 (#1271)
+  elf_princess.png: "Elf Princess" by Rin0002, CC BY 3.0 (#1273)
+  green_sweater.png: "Green Sweater" by Rin0002, CC BY 3.0 (#1275)
+  candy_girl.png: "Candy Girl" by Belen1, CC0 1.0 (#1290)
+  king_gerold.png: "King Gerold" by Extex, CC BY-SA 3.0 (#1434)
+  the_green_wizard.png: "The Green Wizard" by Extex, CC BY-SA 3.0 (#1435)
+  plaid_cat.png: "Plaid Cat" by 0ssd, CC0 1.0 (#1486)
+  rpg_kid.png: "RPG Kid" by Hugues Ross, CC BY-SA 4.0 (#1509)
+  t_rex.png: "T Rex" by Kefka., CC BY-SA 3.0 (#1539)
+  carrot_man.png: "Carrot Man" by piesock, CC BY-SA 3.0 (#1579)
+  frog_girl.png: "Frog GIrl" by Illa, CC0 1.0 (#2256)
+  knighted_girl.png: "Knighted Girl" by Celtina, CC0 1.0 (#2335)
+  explorer.png: "Aguia Explorer" by Davizinho, CC BY-SA 3.0 (#189)
+  red_knight.png: "character_CTF_red_knight" by Sam_0, CC BY 4.0 (#2036)
+  pilot.png: "Pilot" by yotuderconnect, CC BY 4.0 (#2124)
+  knight.png: "Knight" by me, CC BY-SA 3.0 (#1166)
+  swat_agent.png: "Rhys the SWAT Agent" by Rhys, CC BY-SA 3.0 (#437); worn by Leon Network's Chameleon seekers
+  blue_tnt_mouse.png: "Blue TNT Mouse" by Enrico, CC BY-SA 3.0 (#1420)
+  shadow_ninja.png: "ShadowNinja" by ShadowNinja, CC BY-SA 4.0 (#158)
+  ghost.png: "ghost" by BlockMen, CC BY-SA 4.0 (#1969)
+  camouflaged_wizard.png: "Camouflaged wizard" by nm0i, CC BY-SA 4.0 (#696)
+
+CC0 1.0: https://creativecommons.org/publicdomain/zero/1.0/
+CC BY 3.0 / 4.0: https://creativecommons.org/licenses/by/3.0/ , /by/4.0/
+CC BY-SA 3.0 / 4.0: https://creativecommons.org/licenses/by-sa/3.0/ , /by-sa/4.0/
+
+
+Not an official Minecraft product. Not approved by or associated with Mojang
+or Microsoft.
+
+Code from Photon Shaders
+
+RIP Computer's wind on plants, the plants pushed aside by whoever walks
+through them, and the puddles in rain are ported from Photon Shaders by
+SixthSurge (https://github.com/sixthsurge/photon) under the Photon Shaders
+License; what was taken and the licence itself are in shaders/PHOTON-LICENSE.txt.
