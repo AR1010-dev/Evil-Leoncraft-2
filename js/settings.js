@@ -2,7 +2,7 @@
    Leoncraft 2 - Video Settings, Shaders included, put into effect while you
    play.
 
-   The screens (ui/video.js) only change Options; this hears every change and
+   The screens (ui/video.js, ui/menus.js) only change Options; this hears every change and
    does what it means, at once and without loading anything again:
 
      the look              Shaders: Off, Low, Medium, High or RIP Computer (render/looks.js)
@@ -15,7 +15,7 @@
                            Weather Effect Radius
      the rest              Particles, Entity Shadows, Attack Indicator, Chunk
                            Fade, Glint Speed and Strength, Damage Tilt, and our
-                           Fullbright (render/vanilla.js, dim/look.js)
+                           Fullbright (Evilleoncraft Settings; render/vanilla.js, dim/look.js)
      frames                Max Framerate, VSync, Reduce FPS when (hold())
      over the game         the vignette (Show Vignette) and "Saving world"
                            (Autosave Indicator)
@@ -24,8 +24,8 @@
    asks it before every frame whether to draw one (hold) and calls frame()
    once a frame with the game.
 --------------------------------------------------------------------------- */
-import { shaderSettings, lookOf, setFiltering, loadNormalMaps, SHADER_LEVELS } from './render/looks.js?v=117';
-import { particleSetting } from './render/particles.js?v=117';
+import { shaderSettings, lookOf, setFiltering, loadNormalMaps, SHADER_LEVELS } from './render/looks.js?v=118';
+import { particleSetting } from './render/particles.js?v=118';
 
 export class VideoSettings {
   constructor(options, guessShaders) {
@@ -65,7 +65,7 @@ export class VideoSettings {
     this.normals();
     // (and whenever a look lands, in case one wanting them came some other way)
     renderer.onLook(o => { if (o.normals) this.normals(o); });
-    this.R.U.uGlint.value.set(this.o.get('glintSpeed'), this.o.get('glintStrength'));
+    this.syncGlint();
     // no blur behind the menus only with no graphics chip at all (Menu Background Blur works with or without shaders)
     gui.lowEnd = !this.guessed;
     // "Saving world", bottom right, as the game shows it when it saves by itself
@@ -115,7 +115,14 @@ export class VideoSettings {
       case 'fullbright': this.setR('fullbright', !!v); break;
       case 'brightness': R.U.uBrightD.value = v - 0.5; break;
       case 'particles': particleSetting.level = v; break;
-      case 'glintSpeed': case 'glintStrength': R.U.uGlint.value.set(this.o.get('glintSpeed'), this.o.get('glintStrength')); break;
+      case 'glintSpeed': case 'glintStrength': case 'glintThickness': case 'glintScale':
+      case 'glintAngle': case 'glintLayerStrength': case 'glintColor': case 'glintSecondaryColor':
+      case 'glintEnabled': case 'glintPulse': case 'glintPulseSpeed': case 'glintPulseAmount':
+      case 'glintSparkle': case 'glintSparkleScale': case 'glintContrast': case 'glintSoftness':
+      case 'glintLayerOffset': case 'glintDistortion': case 'glintRainbow': case 'glintRainbowSpeed':
+      case 'glintSecondaryMix': case 'glintMaxBrightness': case 'glintOpacity':
+        this.syncGlint();
+        break;
       case 'cutoutLeaves': case 'smoothLighting': case 'biomeBlend': case 'chunkBuilder':
         for (const w of this.worlds()) { w.builder = this.o.get('chunkBuilder'); w.setMeshing(this.worldOpts()); }
         break;
@@ -124,6 +131,27 @@ export class VideoSettings {
         break;
     }
     if (g && g.hud && k === 'attackIndicator') g.hud.markDirty && g.hud.markDirty();
+  }
+  syncGlint() {
+    const o = this.o, U = this.R.U;
+    const color = (key, fallback, target) => {
+      const hex = o.get(key) ?? fallback;
+      target.set(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255);
+    };
+    U.uGlint.value.set(o.get('glintSpeed') ?? 0.5, o.get('glintStrength') ?? 0.75);
+    const angle = (o.get('glintAngle') ?? 350) * Math.PI / 180;
+    U.uGlintShape.value.set(o.get('glintScale') ?? 1, o.get('glintThickness') ?? 0.55, Math.cos(angle), Math.sin(angle));
+    U.uGlintLayer.value = o.get('glintLayerStrength') ?? 0.5;
+    color('glintColor', 0x803ff2, U.uGlintColor.value);
+    color('glintSecondaryColor', 0x3926a8, U.uGlintColor2.value);
+    U.uGlintFx1.value.set(o.get('glintEnabled') !== false ? 1 : 0, o.get('glintPulse') ? 1 : 0,
+      o.get('glintPulseSpeed') ?? 1, o.get('glintPulseAmount') ?? 0.25);
+    U.uGlintFx2.value.set(o.get('glintSparkle') ?? 0.15, o.get('glintSparkleScale') ?? 2,
+      o.get('glintContrast') ?? 1, o.get('glintSoftness') ?? 0.5);
+    U.uGlintFx3.value.set(o.get('glintLayerOffset') ?? 0, o.get('glintDistortion') ?? 0,
+      o.get('glintRainbow') ? 1 : 0, o.get('glintRainbowSpeed') ?? 0.5);
+    U.uGlintFx4.value.set(o.get('glintSecondaryMix') ?? 1, o.get('glintMaxBrightness') ?? 1,
+      o.get('glintOpacity') ?? 1, 0);
   }
   // a number the renderer reads each frame, and the look still being built (render/looks.js) told too
   setR(k, v) { this.R.opts[k] = v; if (this.R.lookPending) this.R.lookPending.look[k] = v; }

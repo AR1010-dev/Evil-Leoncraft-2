@@ -32,12 +32,12 @@
      water or rain, Channeling calls lightning in a storm); the shield is up
      5 ticks after the button goes down, slowing you to a fifth from the start.
 --------------------------------------------------------------------------- */
-import { ITEMS, I, itemName, addCooldown } from '../items.js?v=117';
-import { wear } from '../ui/inventory.js?v=117';
-import { Living } from '../entities/entity.js?v=117';
-import { weaponOf, enchOf, enchantBonus, chargeTicks, wearPerHit, smashBonus, ARTHROPOD } from './weapons.js?v=117';
-import './trident.js?v=117';
-import { rayBox } from '../entities/terrain.js?v=117';
+import { ITEMS, I, itemName, addCooldown } from '../items.js?v=118';
+import { wear } from '../ui/inventory.js?v=118';
+import { Living } from '../entities/entity.js?v=118';
+import { weaponOf, enchOf, enchantBonus, chargeTicks, wearPerHit, smashBonus, ARTHROPOD } from './weapons.js?v=118';
+import './trident.js?v=118';
+import { rayBox } from '../entities/terrain.js?v=118';
 
 /* The spear's charge (the use button held), as the Spear page gives it, by
    material: [ticks before it works, then engaged, tired and disengaged
@@ -101,7 +101,7 @@ export class Combat {
     return 1;
   }
   // how far a hit reaches: 3 blocks (5 in creative), a spear's jab 4.5
-  reach() { return weaponOf(this.heldId()).kind === 'spear' ? (this.creative ? 6.5 : 4.5) : this.creative ? 5 : 3; }
+  reach() { return weaponOf(this.heldId()).kind === 'spear' ? (this.creative ? 8.5 : 5.7) : this.creative ? 7 : 4.2; }
 
   /* ---- the player hits e ---- */
   attack(e, spin) {
@@ -315,6 +315,7 @@ export class Combat {
   }
   // the game's knockback on the player: half the speed kept, strength away from (dx, dz), up to 0.4 if on the ground
   knockPlayer(strength, dx, dz) {
+    if (this.m.options && this.m.options.get('NoKnockback') === true) return;
     strength *= 1 - this.knockbackResistance();
     const l = Math.hypot(dx, dz);
     if (strength <= 0 || l < 1e-4) return;

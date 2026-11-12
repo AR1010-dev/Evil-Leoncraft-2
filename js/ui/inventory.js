@@ -34,18 +34,18 @@
    Slot positions and sheet coordinates are the game's (176 x 166 survival,
    195 x 136 creative, 18-pixel slots); the art is Pixel Perfection CE's.
 --------------------------------------------------------------------------- */
-import { BLOCKS, B } from '../blocks.js?v=117';
-import { Screen, TextField, WHITE } from './gui.js?v=117';
-import { PAINTING_ART } from '../paintingdata.js?v=117';
-import { ITEMS, I, ITEM_BASE, displayName, maxStack, maxDamage, sameItem, withCount, stackToJSON, stackFromJSON, armorOf, cooldownLeft, STEW_EFFECTS, PAINTING_VARIANTS, SONGS, stewEffect, isBundle, bundleWeight, bundleInsert, bundleTake } from '../items.js?v=117';
-import { matchGrid, consumeGrid } from '../crafting.js?v=117';
-import { enchName, ENCH } from '../enchanting.js?v=117';
-import { isPotion, isTipped, potionName, potionLines, effectLines, POTIONS } from '../brewing.js?v=117';
-import { patternLines, drawBannerIcon } from '../banners.js?v=117';
-import { mapLines } from '../maps.js?v=117';
-import { EFFECTS, EFFECT_ICON, EFFECT_SHEET, effectName, effectTime } from '../effects.js?v=117';
-import { dialPicture, usePicture } from '../dials.js?v=117';
-import { RecipeBook } from './recipebook.js?v=117';
+import { BLOCKS, B } from '../blocks.js?v=118';
+import { Screen, TextField, WHITE } from './gui.js?v=118';
+import { PAINTING_ART } from '../paintingdata.js?v=118';
+import { ITEMS, I, ITEM_BASE, displayName, maxStack, maxDamage, sameItem, withCount, stackToJSON, stackFromJSON, armorOf, cooldownLeft, STEW_EFFECTS, PAINTING_VARIANTS, SONGS, stewEffect, isBundle, bundleWeight, bundleInsert, bundleTake } from '../items.js?v=118';
+import { matchGrid, consumeGrid } from '../crafting.js?v=118';
+import { enchName, ENCH } from '../enchanting.js?v=118';
+import { isPotion, isTipped, potionName, potionLines, effectLines, POTIONS } from '../brewing.js?v=118';
+import { patternLines, drawBannerIcon } from '../banners.js?v=118';
+import { mapLines } from '../maps.js?v=118';
+import { EFFECTS, EFFECT_ICON, EFFECT_SHEET, effectName, effectTime } from '../effects.js?v=118';
+import { dialPicture, usePicture } from '../dials.js?v=118';
+import { RecipeBook } from './recipebook.js?v=118';
 export { displayName, maxStack };
 
 const LABEL_GREY = 0x404040;          // the dark grey of container titles
@@ -396,6 +396,10 @@ function glintAgain(g) { if (!glintTimer) glintTimer = setTimeout(() => { glintT
 function drawGlint(g, icons, st, x, y) {
   const e = icons.get ? icons.get(st.id) : null;
   if (!e || !e.c) return;
+  const options = g.options;
+  const option = (key, fallback) => options ? options.get(key) ?? fallback : fallback;
+  const strength = option('glintStrength', 0.75);
+  if (strength <= 0) return;
   const w = e.w;
   if (!glintC) glintC = document.createElement('canvas');
   if (glintC.width !== w) { glintC.width = glintC.height = w; }
@@ -403,16 +407,32 @@ function drawGlint(g, icons, st, x, y) {
   c.globalCompositeOperation = 'copy';
   c.drawImage(e.c, e.x, e.y, w, w, 0, 0, w, w);
   c.globalCompositeOperation = 'source-in';
-  // two bands, one sliding each way, slowly (a band crosses in about three seconds)
   const t = performance.now() / 1000;
-  // a violet sheen all over, and the bands brighter on it
-  c.fillStyle = 'rgb(34,12,66)';
+  const rgb = hex => [hex >> 16 & 255, hex >> 8 & 255, hex & 255];
+  const css = color => 'rgb(' + color.join(',') + ')';
+  const primary = rgb(option('glintColor', 0x803ff2));
+  const secondary = rgb(option('glintSecondaryColor', 0x3926a8));
+  const speed = option('glintSpeed', 0.5);
+  const thickness = option('glintThickness', 0.55);
+  const scale = Math.max(0.25, option('glintScale', 1));
+  const angle = option('glintAngle', 350) * Math.PI / 180;
+  const secondStrength = option('glintLayerStrength', 0.5);
+  c.fillStyle = css(primary);
+  c.globalAlpha = strength * 0.16;
   c.fillRect(0, 0, w, w);
+  c.globalAlpha = 1;
   c.globalCompositeOperation = 'lighter';
-  for (const [speed, slope, rgb] of [[0.33, 0.6, '128,64,204'], [-0.21, -1.4, '96,48,170']]) {
-    const off = ((t * speed) % 1 + 1) % 1 * 3 * w - w * 1.5;
-    const gr = c.createLinearGradient(off, 0, off + w * 1.2, w * 1.2 * slope);
-    gr.addColorStop(0, 'rgba(' + rgb + ',0)'); gr.addColorStop(0.5, 'rgba(' + rgb + ',0.55)'); gr.addColorStop(1, 'rgba(' + rgb + ',0)');
+  for (let i = 0; i < 2; i++) {
+    const a = angle - i * 0.698132, dx = Math.cos(a), dy = Math.sin(a);
+    const nx = -dy, ny = dx, span = w * (1.1 + thickness * 1.6) / scale;
+    const k = (i ? secondStrength : 1) * strength * 0.75;
+    const slide = ((((t * speed * (i ? -0.64 : 1)) % 1) + 1) % 1 - 0.5) * w * 2.6;
+    const cx = w * 0.5 + nx * slide, cy = w * 0.5 + ny * slide;
+    const gr = c.createLinearGradient(cx - dx * span * 0.5, cy - dy * span * 0.5, cx + dx * span * 0.5, cy + dy * span * 0.5);
+    const color = i ? secondary : primary, alpha = Math.min(1, k * (0.6 + thickness * 0.5));
+    gr.addColorStop(0, 'rgba(' + color.join(',') + ',0)');
+    gr.addColorStop(0.5, 'rgba(' + color.join(',') + ',' + alpha + ')');
+    gr.addColorStop(1, 'rgba(' + color.join(',') + ',0)');
     c.fillStyle = gr;
     c.fillRect(0, 0, w, w);
   }

@@ -67,11 +67,11 @@
    Experience: a level takes 2L + 7 points up to 15, 5L - 38 up to 30, and
    9L - 158 after that.
 --------------------------------------------------------------------------- */
-import { B, BLOCKS, FLUID } from './blocks.js?v=117';
-import { I, ITEMS, armorOf } from './items.js?v=117';
-import { wear } from './ui/inventory.js?v=117';
-import { sourceOf, deathMessage } from './damage.js?v=117';
-import { effectId, EFFECTS } from './effects.js?v=117';
+import { B, BLOCKS, FLUID } from './blocks.js?v=118';
+import { I, ITEMS, armorOf } from './items.js?v=118';
+import { wear } from './ui/inventory.js?v=118';
+import { sourceOf, deathMessage } from './damage.js?v=118';
+import { effectId, EFFECTS } from './effects.js?v=118';
 
 const BYPASS_ARMOR = new Set(['fall', 'drown', 'starve', 'void', 'magic', 'poison', 'wither', 'suffocation', 'generic', 'freeze', 'kill']);
 const FIRE = new Set(['lava', 'fire', 'on_fire', 'hot_floor']);
@@ -539,7 +539,7 @@ export class Survival {
     const name = nameOf(l.block);
     const feet = P.w ? nameOf(P.w.get(Math.floor(P.pos.x), Math.floor(P.pos.y), Math.floor(P.pos.z))) : '';
     let dist = l.dist, k = 1, type = 'fall';
-    if (from !== undefined) { if (from <= P.pos.y) return; dist = Math.min(dist, from - P.pos.y); }
+    if (from !== undefined) { if (from <= P.pos.y) return; dist = (Math.min(dist, from - P.pos.y))/5; }
     if (feet === 'pointed_dripstone') { dist += 2.5; k = 2; type = 'stalagmite'; }
     else if (name === 'slime_block') k = P.sneaking ? 1 : 0;
     else if (name === 'hay_block' || name === 'honey_block') k = 0.2;
@@ -680,7 +680,7 @@ export function breakTime(d) {
   if (!d || d.hardness === undefined) return 0.3;
   if (d.hardness < 0) return Infinity;
   if (d.hardness === 0) return 0;
-  return Math.min(20, d.hardness * 1.5);
+  return Math.min(0, d.hardness/5);
 }
 export function dropOf(b) {
   const d = BLOCKS[b];

@@ -16,7 +16,8 @@
    Detailed draws the terrain with lighter shaders that light per vertex
    (LEAN_VS / LEAN_FS below); the rest is the full chain's.
 --------------------------------------------------------------------------- */
-import { COMMON, SHADOW, WIND, TONEMAP, LDR, LIGHTS, FILTER } from './glsl.js?v=117';
+import { COMMON, SHADOW, WIND, TONEMAP, LDR, LIGHTS, FILTER } from './glsl.js?v=118';
+import { CHAMS_CUSTOM_STYLES } from './chams-styles.js?v=118';
 const THREE = window.THREE;
 
 const HEAD = `precision highp float; precision highp int; precision highp sampler2DArray; precision highp sampler2DShadow;\n`;
@@ -58,29 +59,41 @@ uniform vec3 uChunk, cameraPosition;
 layout(location = 0) in uvec4 aPos;
 layout(location = 3) in uvec4 aC;
 flat out vec3 vColor;
-out float vDistance;
 flat out float vGroup;
 void main() {
   vec3 local = vec3(aPos.xyz) / 32.0 - vec3(8.0, 0.0, 8.0);
   vec3 world = local + uChunk;
   vColor = vec3(aC.rgb) / 255.0;
   vGroup = float(aC.a);
-  vDistance = distance(modelMatrix * vec4(world, 1.0), vec4(cameraPosition, 1.0));
   gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(world, 1.0);
 }`;
 const CHEST_FS = /* glsl */`
 flat in vec3 vColor;
-in float vDistance;
 flat in float vGroup;
+uniform float uHighlightChest, uHighlightShulker, uHighlightContainer, uHighlightSign, uHighlightBanner;
+uniform float uHighlightOpacity;
+uniform vec3 uHighlightTint;
 out vec4 outColor;
 void main() {
 #ifdef CHEST_GROUP
   if (int(vGroup + 0.5) != CHEST_GROUP) discard;
+#if CHEST_GROUP == 1
+  if (uHighlightChest < 0.5) discard;
+#elif CHEST_GROUP == 2
+  if (uHighlightShulker < 0.5) discard;
+#elif CHEST_GROUP == 3
+  if (uHighlightContainer < 0.5) discard;
+#elif CHEST_GROUP == 4
+  if (uHighlightSign < 0.5) discard;
+#elif CHEST_GROUP == 5
+  if (uHighlightBanner < 0.5) discard;
+#endif
 #endif
 #ifdef CHEST_FAR
-  if (vDistance <= 10.0) discard;
+  outColor = vec4(vColor * uHighlightTint, uHighlightOpacity);
+#else
+  outColor = vec4(vColor * uHighlightTint, 1.0);
 #endif
-  outColor = vec4(vColor, 1.0);
 }`;
 
 const LDR_FN = /* glsl */`
@@ -96,6 +109,76 @@ uniform sampler2D uLayerInfo, uAmbient, uNoise;
 uniform vec3 cameraPosition;
 uniform vec3 uLightDir;
 uniform float uFrame, uWet;
+uniform float uChamsEnabled;
+uniform float uChamsTransparency, uChamsOpacity;
+uniform float uChamsStyle;
+uniform vec3 uChamsColor;
+uniform float uChamsTint;
+uniform vec4 uChamsFx1, uChamsFx2, uChamsFx3;
+uniform vec4 uChamsFx4, uChamsFx5, uChamsFx6;
+uniform vec3 uChamsGradientColor;
+` + CHAMS_CUSTOM_STYLES + /* glsl */`
+vec3 chamsRainbow(float hue, float saturation) {
+  vec3 p = abs(fract(hue + vec3(0.0, 0.666667, 0.333333)) * 6.0 - 3.0);
+  return mix(vec3(1.0), clamp(p - 1.0, 0.0, 1.0), saturation);
+}
+vec3 chamsAdjusted(vec3 color, float t) {
+  color += vec3(uChamsFx1.x);
+  float grey = dot(color, vec3(0.299, 0.587, 0.114));
+  color = mix(vec3(grey), color, uChamsFx1.y);
+  color = (color - 0.5) * uChamsFx1.z + 0.5;
+  float cs = cos(uChamsFx1.w), sn = sin(uChamsFx1.w);
+  vec3 axis = normalize(vec3(1.0));
+  color = color * cs + cross(axis, color) * sn + axis * dot(axis, color) * (1.0 - cs);
+  float pulse = uChamsFx2.x > 0.5 ? 1.0 - uChamsFx2.z * 0.5 + uChamsFx2.z * 0.5 * sin(t * uChamsFx2.y * 6.2831853) : 1.0;
+  return max(color, vec3(0.0)) * pulse;
+}
+vec3 chamsApply(vec3 color, vec2 uv, float t, vec3 N, vec3 V, vec3 worldPos) {
+  vec2 patternUv = chamsWorldUv(worldPos);
+  vec3 tint = color;
+  if (uChamsStyle < 0.5) {
+    tint = mix(color, uChamsColor, uChamsTint);
+    if (uChamsFx4.x > 0.5) {
+      vec3 rainbow = chamsRainbow(t * uChamsFx4.y + patternUv.x * 0.18, uChamsFx4.z);
+      tint = mix(tint, rainbow, clamp(uChamsFx4.w, 0.0, 1.0));
+    }
+    tint = mix(tint, uChamsGradientColor, clamp(0.5 + patternUv.y * 0.08, 0.0, 1.0) * clamp(uChamsFx5.z, 0.0, 1.0));
+    tint = chamsAdjusted(tint, t);
+  } else if (uChamsStyle < 1.5) {
+    float shimmer = pow(max(0.0, sin((patternUv.x + patternUv.y * 0.5 - t * uChamsFx2.w) * uChamsFx3.x)), 4.0);
+    tint += uChamsColor * shimmer * uChamsFx3.y;
+  } else if (uChamsStyle < 2.5) {
+    float edge = pow(1.0 - max(dot(normalize(N), normalize(V)), 0.0), 2.2);
+    float hue = t * max(uChamsFx4.y, 0.1) + patternUv.x * 0.72 + patternUv.y * 0.38 + edge * 0.22;
+    vec3 spectrum = chamsRainbow(hue, 0.9);
+    float sweep = pow(max(0.0, sin((patternUv.x * 7.0 + patternUv.y * 4.0 - t * 0.8) * 6.2831853)), 8.0);
+    float scan = 0.96 + 0.04 * sin((patternUv.y * 42.0 + patternUv.x * 6.0 - t * 0.7) * 6.2831853);
+    tint = mix(color, spectrum, 0.48 + edge * 0.34);
+    tint = tint * scan + uChamsColor * (edge * 0.28 + sweep * 0.16);
+  } else if (uChamsStyle < 3.5) {
+    float pulse = 0.5 + 0.5 * sin(t * uChamsFx2.y * 6.2831853);
+    tint = mix(color, uChamsColor, 0.2 + pulse * 0.55);
+  } else {
+    tint = chamsCustomStyle(color, patternUv, t, N, V, uChamsStyle);
+  }
+  if (uChamsFx6.x > 0.001) {
+    float sparkleScale = max(uChamsFx6.y * 0.2, 1.0);
+    vec2 sparkleCell = patternUv * sparkleScale;
+    vec2 sparkleId = floor(sparkleCell);
+    float sparkleSeed = fract(sin(dot(sparkleId, vec2(127.1, 311.7))) * 43758.5453);
+    float sparkleSeedY = fract(sparkleSeed * 31.7);
+    vec2 sparklePos = fract(sparkleCell) - vec2(sparkleSeed, sparkleSeedY);
+    float sparkleX = 1.0 - smoothstep(0.01, 0.045, abs(sparklePos.x));
+    float sparkleY = 1.0 - smoothstep(0.06, 0.15, abs(sparklePos.y));
+    float sparkleStar = max(sparkleX * sparkleY,
+                            (1.0 - smoothstep(0.01, 0.045, abs(sparklePos.y)))
+                            * (1.0 - smoothstep(0.06, 0.15, abs(sparklePos.x))));
+    float twinkle = 0.35 + 0.65 * pow(0.5 + 0.5 * sin(t * uChamsFx6.z * 6.2831853 + sparkleSeed * 6.2831853), 3.0);
+    tint += uChamsColor * sparkleStar * twinkle * uChamsFx6.x;
+  }
+  float rim = pow(1.0 - max(dot(normalize(N), normalize(V)), 0.0), max(uChamsFx5.y, 0.25));
+  return tint + uChamsColor * rim * uChamsFx5.x;
+}
 uniform float uAO;              // the corners' shade (Shader Options: Ambient Occlusion)
 uniform float uChunkFade;       // a column fading in (Chunk Fade): here a few more of its pixels each frame, the sky behind the rest
 uniform mat3 uFaceRot;
@@ -219,7 +302,6 @@ void main() {
   vec4 sp = tex(uSpecMap, uv, vLayer, info);
   // Minecraft's fast leaves: solid blocks, the gaps a dark leafy shade
   if ((vFlags & 128) != 0 && alb.a < 0.5) albedo = toLinear(vTint * 0.42);
-
   // the face's frame, turned with its texture
   vec3 Ng = uFaceRot * faceN(vNormal), T = uFaceRot * faceT(vNormal), Bt = uFaceRot * faceB(vNormal);
   if (rot == 1) { vec3 t = T; T = -Bt; Bt = t; }
@@ -369,12 +451,16 @@ void main() {
 #endif
   // light of its own
   col += albedo * emit * 6.0;
+  if (uChamsEnabled > 0.5) col = mix(col, chamsApply(col, vUv, uTime, N, V, vWorld), clamp(uChamsEffectAmount, 0.0, 1.0));
 #ifdef LDR
   col = finishLDR(col, vWorld);
 #endif
 #ifdef TRANSLUCENT
   float fres = pow(1.0 - sat(dot(N, V)), 5.0);
   outColor = vec4(col, mix(max(alb.a, 0.35), 1.0, fres * 0.6));
+#elif defined(HAND)
+  float alpha = uChamsEnabled > 0.5 && uChamsTransparency > 0.5 ? uChamsOpacity : 1.0;
+  outColor = vec4(col, alpha);
 #elif defined(PUDDLES)
   // (a puddle is marked in the alpha, 1 to 1.45: the composite puts the world and the sky in it, post.js puddleLook)
   outColor = vec4(col, 1.0 + 0.45 * puddle);
@@ -422,7 +508,8 @@ layout(location = 0) in uvec4 aPos; layout(location = 1) in uvec4 aA; layout(loc
 #define aC vec4(aC)
 uniform vec3 uChunk;
 ` + LDR + LIGHTS + HAND_SHADE + /* glsl */`
-out vec2 vUv; out vec3 vTint;
+out vec2 vUv; out vec3 vTint, vWorld;
+flat out int vNormal;
 out vec3 vAmb;       // sky, torch and held light (exposure and fog in)
 out vec3 vSun;       // the sun or moon on the face, its angle and the glow through leaves in (a two-sided face: before its side's share)
 out vec4 vShadowP;   // the point in the light's view, nudged off the face (xyz), and the light level's guess past the map (w; 2 more under water)
@@ -442,6 +529,8 @@ void main() {
   int flags = int(aA.w + 0.5);
   vec4 L = aL / 255.0;
   world.xyz += windOffset(world.xyz, nw >> 3, aA.y / 16.0, L.x, L.w, aC.w);
+  vWorld = world.xyz;
+  vNormal = nw & 7;
   // (from the eye, never viewMatrix on the place in the world: vanilla.js TERRAIN_VS)
   gl_Position = projectionMatrix * vec4(mat3(viewMatrix) * (world.xyz - cameraPosition), 1.0);
   vUv = aA.xy / 16.0;
@@ -536,14 +625,85 @@ uniform vec3 uLightDir;
 uniform mat3 uFaceRot;
 uniform mat4 uShadowInv;     // back from the shadow map's view to the world
 uniform float uTime;
-in vec2 vUv; in vec3 vTint; in vec3 vAmb; in vec3 vSun; in vec4 vShadowP; in vec4 vFog;
+uniform float uChamsEnabled;
+uniform float uChamsTransparency, uChamsOpacity;
+uniform float uChamsStyle;
+uniform vec3 uChamsColor;
+uniform float uChamsTint;
+uniform vec4 uChamsFx1, uChamsFx2, uChamsFx3;
+uniform vec4 uChamsFx4, uChamsFx5, uChamsFx6;
+uniform vec3 uChamsGradientColor;
+uniform vec3 cameraPosition;
+` + CHAMS_CUSTOM_STYLES + /* glsl */`
+vec3 leanChamsRainbow(float hue, float saturation) {
+  vec3 p = abs(fract(hue + vec3(0.0, 0.666667, 0.333333)) * 6.0 - 3.0);
+  return mix(vec3(1.0), clamp(p - 1.0, 0.0, 1.0), saturation);
+}
+vec3 leanChamsAdjusted(vec3 color, float t) {
+  color += vec3(uChamsFx1.x);
+  float grey = dot(color, vec3(0.299, 0.587, 0.114));
+  color = mix(vec3(grey), color, uChamsFx1.y);
+  color = (color - 0.5) * uChamsFx1.z + 0.5;
+  float cs = cos(uChamsFx1.w), sn = sin(uChamsFx1.w);
+  vec3 axis = normalize(vec3(1.0));
+  color = color * cs + cross(axis, color) * sn + axis * dot(axis, color) * (1.0 - cs);
+  float pulse = uChamsFx2.x > 0.5 ? 1.0 - uChamsFx2.z * 0.5 + uChamsFx2.z * 0.5 * sin(t * uChamsFx2.y * 6.2831853) : 1.0;
+  return max(color, vec3(0.0)) * pulse;
+}
+vec3 leanChamsApply(vec3 color, vec2 uv, float t, vec3 N, vec3 V, vec3 worldPos) {
+  vec2 patternUv = chamsWorldUv(worldPos);
+  vec3 tint = color;
+  if (uChamsStyle < 0.5) {
+    tint = mix(color, uChamsColor, uChamsTint);
+    if (uChamsFx4.x > 0.5) {
+      vec3 rainbow = leanChamsRainbow(t * uChamsFx4.y + patternUv.x * 0.18, uChamsFx4.z);
+      tint = mix(tint, rainbow, clamp(uChamsFx4.w, 0.0, 1.0));
+    }
+    tint = mix(tint, uChamsGradientColor, clamp(0.5 + patternUv.y * 0.08, 0.0, 1.0) * clamp(uChamsFx5.z, 0.0, 1.0));
+    tint = leanChamsAdjusted(tint, t);
+  } else if (uChamsStyle < 1.5) {
+    float shimmer = pow(max(0.0, sin((patternUv.x + patternUv.y * 0.5 - t * uChamsFx2.w) * uChamsFx3.x)), 4.0);
+    tint += uChamsColor * shimmer * uChamsFx3.y;
+  } else if (uChamsStyle < 2.5) {
+    float edge = pow(1.0 - max(dot(normalize(N), normalize(V)), 0.0), 2.2);
+    float hue = t * max(uChamsFx4.y, 0.1) + patternUv.x * 0.72 + patternUv.y * 0.38 + edge * 0.22;
+    vec3 spectrum = leanChamsRainbow(hue, 0.9);
+    float sweep = pow(max(0.0, sin((patternUv.x * 7.0 + patternUv.y * 4.0 - t * 0.8) * 6.2831853)), 8.0);
+    float scan = 0.96 + 0.04 * sin((patternUv.y * 42.0 + patternUv.x * 6.0 - t * 0.7) * 6.2831853);
+    tint = mix(color, spectrum, 0.48 + edge * 0.34);
+    tint = tint * scan + uChamsColor * (edge * 0.28 + sweep * 0.16);
+  } else if (uChamsStyle < 3.5) {
+    float pulse = 0.5 + 0.5 * sin(t * uChamsFx2.y * 6.2831853);
+    tint = mix(color, uChamsColor, 0.2 + pulse * 0.55);
+  } else {
+    tint = chamsCustomStyle(color, patternUv, t, N, V, uChamsStyle);
+  }
+  if (uChamsFx6.x > 0.001) {
+    float sparkleScale = max(uChamsFx6.y * 0.2, 1.0);
+    vec2 sparkleCell = patternUv * sparkleScale;
+    vec2 sparkleId = floor(sparkleCell);
+    float sparkleSeed = fract(sin(dot(sparkleId, vec2(127.1, 311.7))) * 43758.5453);
+    float sparkleSeedY = fract(sparkleSeed * 31.7);
+    vec2 sparklePos = fract(sparkleCell) - vec2(sparkleSeed, sparkleSeedY);
+    float sparkleX = 1.0 - smoothstep(0.01, 0.045, abs(sparklePos.x));
+    float sparkleY = 1.0 - smoothstep(0.06, 0.15, abs(sparklePos.y));
+    float sparkleStar = max(sparkleX * sparkleY,
+                            (1.0 - smoothstep(0.01, 0.045, abs(sparklePos.y)))
+                            * (1.0 - smoothstep(0.06, 0.15, abs(sparklePos.x))));
+    float twinkle = 0.35 + 0.65 * pow(0.5 + 0.5 * sin(t * uChamsFx6.z * 6.2831853 + sparkleSeed * 6.2831853), 3.0);
+    tint += uChamsColor * sparkleStar * twinkle * uChamsFx6.x;
+  }
+  float rim = pow(1.0 - max(dot(normalize(N), normalize(V)), 0.0), max(uChamsFx5.y, 0.25));
+  return tint + uChamsColor * rim * uChamsFx5.x;
+}
+in vec2 vUv; in vec3 vTint; in vec3 vWorld; in vec3 vAmb; in vec3 vSun; in vec4 vShadowP; in vec4 vFog;
 #if defined(CUTOUT) || defined(TRANSLUCENT)
 in vec2 vK; in vec3 vShadowO;
 #endif
 #ifdef TRANSLUCENT
 in float vFres;
 #endif
-flat in vec3 vLayers; flat in int vFlags;
+flat in vec3 vLayers; flat in int vFlags, vNormal;
 layout(location = 0) out vec4 outColor;
 // caustics under water: two scrolling layers of light netting, sharpened
 float caustics(vec3 p) {
@@ -588,7 +748,6 @@ void main() {
   // Minecraft's fast leaves: solid blocks, the gaps a dark leafy shade
   if ((vFlags & 128) != 0 && alb.a < 0.5) albedo = vTint * 0.42;
   albedo = toLinear(albedo);
-
   vec3 light = vAmb;
   // the sun, through the shadow map, on the side of the face that is showing
   // (its angle and the glow were worked out at the corners: LEAN_VS)
@@ -634,9 +793,17 @@ void main() {
   vec3 col = albedo * light;
   // light of its own: torch flames, glowstone, lanterns (the material map's emission)
   if (vFog.a > 0.0) col += albedo * texture(uSpecMap, vec3(uv, vLayers.x)).a * vFog.a;
+  if (uChamsEnabled > 0.5) {
+    vec3 chamsNormal = (vFlags & 32) != 0 ? vec3(0.0, 1.0, 0.0) : uFaceRot * faceN(vNormal);
+    if (!gl_FrontFacing) chamsNormal = -chamsNormal;
+    col = mix(col, leanChamsApply(col, vUv, uTime, chamsNormal, normalize(cameraPosition - vWorld), vWorld), clamp(uChamsEffectAmount, 0.0, 1.0));
+  }
   col = toneLDR(col + vFog.rgb);
 #ifdef TRANSLUCENT
   outColor = vec4(col, mix(max(alb.a, 0.35), 1.0, vFres * 0.6));
+#elif defined(HAND)
+  float alpha = uChamsEnabled > 0.5 && uChamsTransparency > 0.5 ? uChamsOpacity : 1.0;
+  outColor = vec4(col, alpha);
 #else
   outColor = vec4(col, 1.0);
 #endif
@@ -773,7 +940,7 @@ export function makeMaterials(shared, q) {
     uniforms: shared, defines, side: THREE.DoubleSide,
   });
   const chestPasses = {};
-  for (let group = 1; group <= 3; group++) {
+  for (let group = 1; group <= 5; group++) {
     const bit = 1 << (group - 1), defines = { CHEST_GROUP: group };
     chestPasses[`chestBlocker${group}`] = new THREE.RawShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader: HEAD + CHEST_VS, fragmentShader: HEAD + CHEST_FS,

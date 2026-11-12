@@ -6,7 +6,8 @@
      shadow       the world from the sun (or moon), into a squeezed map
                   centred on the player, snapped to its texels so it does not
                   shimmer as you walk
-     world        opaque and alpha-tested blocks into a floating-point target
+     world        opaque and alpha-tested blocks into a floating-point target;
+                  chunk-grouped X-ray ores when that mode is on
      copies       that colour and its depth, for the water to see through
      water        water, lava, ice and stained glass over it
      post         light shafts, clouds, sky and fog, bloom, exposure, tone
@@ -14,26 +15,126 @@
 
    Chunk meshes come in from the workers as plain arrays and are wrapped here.
 --------------------------------------------------------------------------- */
-import { Realism } from './realism.js?v=117';
-import { Interaction } from './interaction.js?v=117';
-import { makeLayerInfo, bakeLayerMaterials } from './materials.js?v=117';
-import { makeNoise2D } from './noisetex.js?v=117';
-import { Avatar } from './avatar.js?v=117';
-import { Held } from './held.js?v=117';
-import { Figure } from './figure.js?v=117';
-import { PumpkinView } from './pumpkin.js?v=117';
-import { glints, pieceLook } from './armor.js?v=117';
-import { dimLook } from '../dim/look.js?v=117';
-import { blockGeometry, intAttribute } from './blockmesh.js?v=117';
-import { applyLook, looked, passMaterials } from './looks.js?v=117';
-import { screenFx } from './screenfx.js?v=117';
-import { endFlash } from './endflash.js?v=117';
+import { Realism } from './realism.js?v=118';
+import { Interaction } from './interaction.js?v=118';
+import { makeLayerInfo, bakeLayerMaterials } from './materials.js?v=118';
+import { makeNoise2D } from './noisetex.js?v=118';
+import { FullScreen, rawMat, floatTarget } from './sky.js?v=118';
+import { Avatar } from './avatar.js?v=118';
+import { Held } from './held.js?v=118';
+import { Figure } from './figure.js?v=118';
+import { PumpkinView } from './pumpkin.js?v=118';
+import { glints, pieceLook } from './armor.js?v=118';
+import { dimLook } from '../dim/look.js?v=118';
+import { blockGeometry, intAttribute } from './blockmesh.js?v=118';
+import { applyLook, looked, passMaterials } from './looks.js?v=118';
+import { screenFx, setEnvironmentalClarity, prepareEnvironmentalClarity } from './screenfx.js?v=118';
+import { endFlash } from './endflash.js?v=118';
+import { STAR_MOTION_PRESETS } from './star-motion.js?v=118';
 const THREE = window.THREE;
+const OUTLINE_DEPTH_FS = /* glsl */`
+uniform sampler2D uDepth;
+uniform float uNear, uFar;
+in vec2 vUv; out vec4 o;
+void main() {
+  float d = texture(uDepth, vUv).r;
+  float z = d * 2.0 - 1.0;
+  float linearDepth = d >= 1.0 ? uFar : 2.0 * uNear * uFar / (uFar + uNear - z * (uFar - uNear));
+  o = vec4(linearDepth, 0.0, 0.0, 1.0);
+}`;
+const OUTLINE_FS = /* glsl */`
+uniform sampler2D uDepth;
+uniform vec2 uTexel;
+uniform vec3 uColor;
+uniform vec3 uColor2;
+uniform float uOpacity, uWidth, uSensitivity, uMaxDistance, uDistanceThin;
+uniform float uClock;
+uniform vec4 uFx1, uFx2, uFx3, uFx4, uFx5, uFx6;
+in vec2 vUv; out vec4 o;
+vec3 rainbow(float t, float saturation) {
+  vec3 c = abs(fract(t + vec3(0.0, 0.666667, 0.333333)) * 6.0 - 3.0);
+  return mix(vec3(1.0), clamp(c - 1.0, 0.0, 1.0), saturation);
+}
+void main() {
+  float center = texture(uDepth, vUv).r;
+  float widthScale = mix(1.0, max(0.25, 1.0 - 0.75 * smoothstep(8.0, 128.0, center)), clamp(uDistanceThin, 0.0, 1.0));
+  float effectiveWidth = max(0.5, uWidth * widthScale);
+  vec2 dx = vec2(uTexel.x * effectiveWidth, 0.0), dy = vec2(0.0, uTexel.y * effectiveWidth);
+  float edge = 0.0, neighbor = 0.0;
+  for (int i = 0; i < 4; i++) {
+    vec2 dir = i == 0 ? dx : i == 1 ? -dx : i == 2 ? dy : -dy;
+    float d = texture(uDepth, vUv + dir).r;
+    float diff = abs(d - center) / max(min(d, center), 0.05);
+    edge = max(edge, diff);
+    neighbor += d * 0.25;
+  }
+  if (uFx1.y > 0.001) {
+    for (int i = 0; i < 4; i++) {
+      vec2 dir = i == 0 ? dx + dy : i == 1 ? dx - dy : i == 2 ? -dx + dy : -dx - dy;
+      float d = texture(uDepth, vUv + dir).r;
+      float diff = abs(d - center) / max(min(d, center), 0.05);
+      edge = max(edge, diff * uFx1.y);
+    }
+  }
+  float threshold = max(0.001, uSensitivity + uFx6.z);
+  float softness = max(0.001, uFx1.x);
+  float edgeAlpha = smoothstep(threshold * (1.0 - 0.5 * softness), threshold * (1.0 + softness), edge);
+  if (uFx1.z > 0.5 && uFx1.z < 1.5) edgeAlpha = step(threshold, edge);
+  if (uFx1.z > 1.5) edgeAlpha = max(edgeAlpha, step(threshold * 2.0, edge) * 0.65);
+
+  float glowEdge = 0.0;
+  if (uFx2.x > 0.001 || uFx5.x > 0.5) {
+    vec2 gx = dx * max(1.0, uFx2.y), gy = dy * max(1.0, uFx2.y);
+    for (int i = 0; i < 4; i++) {
+      vec2 dir = i == 0 ? gx : i == 1 ? -gx : i == 2 ? gy : -gy;
+      float d = texture(uDepth, vUv + dir).r;
+      glowEdge = max(glowEdge, abs(d - center) / max(min(d, center), 0.05));
+    }
+  }
+  float glowAlpha = smoothstep(threshold * 0.5, threshold * (1.0 + softness), glowEdge) * uFx2.x;
+  edgeAlpha = max(edgeAlpha, glowAlpha);
+  if (uFx6.w > 0.0) {
+    float blurEdge = 0.0;
+    vec2 blurStep = uTexel * uFx6.w;
+    for (int i = 0; i < 4; i++) {
+      vec2 dir = i == 0 ? vec2(1.0, 0.0) : i == 1 ? vec2(-1.0, 0.0) :
+        i == 2 ? vec2(0.0, 1.0) : vec2(0.0, -1.0);
+      float d = texture(uDepth, vUv + dir * blurStep).r;
+      blurEdge = max(blurEdge, abs(d - center) / max(min(d, center), 0.05));
+    }
+    float blurAlpha = smoothstep(threshold * (1.0 - 0.5 * softness), threshold * (1.0 + softness), blurEdge);
+    edgeAlpha = max(edgeAlpha, blurAlpha * min(0.85, uFx6.w * 0.2));
+  }
+  if (uFx5.x > 0.5) {
+    float fillAlpha = smoothstep(threshold * 0.2, threshold, glowEdge) * uFx5.y;
+    edgeAlpha = max(edgeAlpha, fillAlpha);
+  }
+  float corner = clamp((edge - glowEdge * 0.5) * 8.0, 0.0, 1.0);
+  edgeAlpha *= 1.0 + corner * uFx5.z;
+  if (center < neighbor) edgeAlpha *= uFx1.w;
+  if (uFx4.y > 0.5) {
+    float dash = step(0.35, fract((vUv.x + vUv.y) * uFx4.z - uClock * uFx4.w));
+    edgeAlpha *= dash;
+  }
+  if (uFx2.z > 0.5) edgeAlpha *= 1.0 - uFx3.x * 0.5 + uFx3.x * 0.5 * sin(uClock * uFx2.w * 6.2831853);
+  if (uFx6.x > 0.0 && uFx6.y > uFx6.x) edgeAlpha *= 1.0 - smoothstep(uFx6.x, uFx6.y, center);
+  if (uMaxDistance > 0.0 && center > uMaxDistance) edgeAlpha = 0.0;
+
+  float cycle = uFx3.y > 0.5 ? fract(uClock * uFx3.z * 0.1) : 0.0;
+  vec3 color = mix(uColor, uColor2, uFx4.x);
+  if (uFx3.y > 0.5) color = mix(color, rainbow(cycle, uFx3.w), 0.85);
+  color *= uFx5.w;
+  o = vec4(color, clamp(edgeAlpha * uOpacity, 0.0, 1.0));
+}`;
+const OUTLINE_PRESENT_FS = /* glsl */`
+uniform sampler2D uColor;
+in vec2 vUv; out vec4 o;
+void main() { o = texture(uColor, vUv); }`;
 // a column's distance from (ex, ez), squared, in whole blocks; and nearest first
 const distTo = (col, ex, ez) => { const dx = col.cx * 16 + 8 - ex, dz = col.cz * 16 + 8 - ez; return (dx * dx + dz * dz) | 0; };
 const byDist = (a, b) => a.dist - b.dist;
 // what a column's mesh puts on the graphics card, in bytes
-const MESH_KINDS = ['opaque', 'cutout', 'plants', 'leafIn', 'fluid', 'translucent', 'chests'];
+const MESH_KINDS = ['opaque', 'cutout', 'plants', 'leafIn', 'fluid', 'translucent', 'chests', 'xray'];
 function meshBytes(mesh) {
   let n = 0;
   for (let k = 0; k < MESH_KINDS.length; k++) {
@@ -52,7 +153,9 @@ function blankTexture() {
 
 export class Renderer {
   constructor(canvas, textures, opts) {
-    this.opts = Object.assign({ renderDist: 10, shadowRes: 2048, shadowDist: 112, scale: 1, shadows: 2, ldr: false }, opts || {});
+    this.opts = Object.assign({ renderDist: 10, shadowRes: 2048, shadowDist: 112, scale: 1, shadows: 2, ldr: false, chamsOutlineEnabled: false }, opts || {});
+    this.setEnvironmentalClarity = setEnvironmentalClarity;
+    this.environmentalTilt = new THREE.Quaternion();
     const ldr = this.ldr = !!this.opts.ldr;
     // (a stencil buffer asked for so the depth buffer comes as 24 bits with it: some machines give a lone depth buffer 16 bits, and a
     // carpet or a painting a sixteenth off what is behind it flickered through it there)
@@ -66,8 +169,58 @@ export class Renderer {
     // it waited for all of them, a fifth of a second at every page open (Video Settings' filtering, render/looks.js)
     r.capabilities.getMaxAnisotropy();
     this.camera = new THREE.PerspectiveCamera(70, 1, 0.05, 1000);
+    this.tracerViewport = new THREE.Vector2();
     this.scene = new THREE.Scene();          // opaque and cutout
     this.trans = new THREE.Scene();          // fluids and translucent
+    const fastBox = new THREE.BoxGeometry(16, 1, 16);
+    this.fastLoadGeometry = new THREE.EdgesGeometry(fastBox);
+    fastBox.dispose();
+    this.fastLoadMaterial = new THREE.LineBasicMaterial({
+      color: this.opts.fastLoadColor ?? 0x00ff00, depthTest: false, depthWrite: false,
+      transparent: true, opacity: this.opts.fastLoadOpacity ?? 0.85, toneMapped: false,
+    });
+    this.previousLoadMaterial = new THREE.LineBasicMaterial({
+      color: 0x00ff00, depthTest: false, depthWrite: false,
+      transparent: true, opacity: this.opts.fastLoadOpacity ?? 0.85, toneMapped: false,
+    });
+    this.xrayMaterial = new THREE.RawShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      vertexShader: `precision highp float; precision highp int;
+        uniform mat4 modelMatrix, viewMatrix, projectionMatrix;
+        uniform vec3 uChunk;
+        layout(location = 0) in uvec4 aPos;
+        layout(location = 1) in uvec4 aA;
+        out vec2 vUv;
+        flat out float vLayer;
+        flat out float vShade;
+        void main() {
+          vec3 local = vec3(aPos.xyz) / 32.0 - vec3(8.0, 0.0, 8.0) + uChunk;
+          vUv = vec2(aA.xy) / 16.0;
+          vLayer = float(aPos.w);
+          int face = int(aA.z);
+          vShade = face == 2 ? 1.0 : face == 3 ? 0.88 : 0.94;
+          gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(local, 1.0);
+        }`,
+      fragmentShader: `precision highp float; precision highp int; precision highp sampler2DArray;
+        uniform sampler2DArray uAlbedo;
+        uniform float uXrayOpacity;
+        in vec2 vUv;
+        flat in float vLayer;
+        flat in float vShade;
+        out vec4 outColor;
+        void main() {
+          vec4 texel = texture(uAlbedo, vec3(vUv, vLayer));
+          if (texel.a < 0.1) discard;
+          outColor = vec4(texel.rgb * vShade, texel.a * uXrayOpacity);
+        }`,
+      uniforms: {
+        uAlbedo: { value: textures.albedo },
+        uChunk: { value: new THREE.Vector3() },
+        uXrayOpacity: { value: this.opts.xrayOpacity ?? 0.75 },
+      },
+      transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide,
+      toneMapped: false,
+    });
     this.shadowScene = new THREE.Scene();    // what moves: your own body (render/avatar.js)
     this.shadowTerrain = new THREE.Scene();  // the world's blocks, drawn into their own map and kept
     this.shadowCam = new THREE.OrthographicCamera(-1, 1, 1, -1, -400, 400);
@@ -87,6 +240,7 @@ export class Renderer {
       // your own body's small shadow map, and how to find it from the blocks' one (render/shadows.js)
       uBodyShadow: { value: null }, uBodyMat: { value: new THREE.Matrix4() }, uBody: { value: new THREE.Vector4() },
       uLightDir: { value: new THREE.Vector3(0, 1, 0) }, uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uMoonDir: { value: new THREE.Vector3(0, -1, 0) },
+      uStarMotion: { value: new THREE.Vector3() },
       uInteract: { value: this.inter.texture }, uInteractRect: { value: this.inter.rect }, uPlayer: { value: new THREE.Vector3() },
       uWet: { value: 0 }, uSceneColor: { value: null }, uSceneDepth: { value: null }, uRes: { value: new THREE.Vector2(1, 1) },
       uEyeInWater: { value: 0 }, uNear: { value: 0.05 }, uFar: { value: 1000 }, uProjInv: { value: new THREE.Matrix4() },
@@ -121,8 +275,36 @@ export class Renderer {
       // the full chain's eye, a 1 x 1 picture (render/post.js; lava in water.js reads it)
       uExpoTex: { value: null },
       uChunkFade: { value: 1 }, uCloudFade: { value: new THREE.Vector2(256, 512) },
-      // the enchantment glint's speed and strength (Accessibility Settings; render/armor.js GLINT)
+      uHighlightChest: { value: 1 }, uHighlightShulker: { value: 1 }, uHighlightContainer: { value: 1 },
+      uHighlightSign: { value: 1 }, uHighlightBanner: { value: 1 }, uHighlightOpacity: { value: 0.5 },
+      uHighlightTint: { value: new THREE.Vector3(1, 1, 1) },
+      uChamsEnabled: { value: 0 }, uChamsColor: { value: new THREE.Vector3(0, 1, 1) },
+      uChamsOutlineColor: { value: new THREE.Vector3(0, 1, 1) },
+      uChamsHandOutlineColor: { value: new THREE.Vector3(0, 1, 1) },
+      uChamsHandOutlineOpacity: { value: 1 },
+      uChamsHandOutlineWidth: { value: 2 },
+      uChamsHandOutlineViewport: { value: new THREE.Vector2(1, 1) },
+      uChamsTint: { value: 0.45 }, uChamsGlow: { value: 0.35 },
+      uChamsEffectAmount: { value: 1 },
+      uChamsFx1: { value: new THREE.Vector4(0, 1, 1, 0) },
+      uChamsFx2: { value: new THREE.Vector4(0, 1, 0.2, 0.15) },
+      uChamsFx3: { value: new THREE.Vector4(26, 0.75, 0, 0) },
+      uChamsFx4: { value: new THREE.Vector4(0, 0.2, 1, 1) },
+      uChamsFx5: { value: new THREE.Vector4(0.35, 3, 0, 0) },
+      uChamsFx6: { value: new THREE.Vector4(0.5, 35, 1, 0) },
+      uChamsGradientColor: { value: new THREE.Vector3(1, 0, 1) },
+      uChamsSky: { value: 1 }, uChamsTransparency: { value: 0 }, uChamsOpacity: { value: 0.65 },
+      uChamsStyle: { value: 0 }, uChamsArm: { value: 0 },
+      // the enchantment glint's shared shape and colors (render/armor.js GLINT)
       uGlint: { value: new THREE.Vector2(0.5, 0.75) },
+      uGlintShape: { value: new THREE.Vector4(1, 0.55, Math.cos(350 * Math.PI / 180), Math.sin(350 * Math.PI / 180)) },
+      uGlintLayer: { value: 0.5 },
+      uGlintColor: { value: new THREE.Vector3(128 / 255, 63 / 255, 242 / 255) },
+      uGlintColor2: { value: new THREE.Vector3(57 / 255, 38 / 255, 168 / 255) },
+      uGlintFx1: { value: new THREE.Vector4(1, 0, 1, 0.25) },
+      uGlintFx2: { value: new THREE.Vector4(0.15, 2, 1, 0.5) },
+      uGlintFx3: { value: new THREE.Vector4(0, 0, 0, 0.5) },
+      uGlintFx4: { value: new THREE.Vector4(1, 1, 1, 1) },
       // Brightness (Video Settings) less its default, for the shader look (glsl.js lightFloor)
       uBrightD: { value: (this.opts.brightness === undefined ? 0.5 : this.opts.brightness) - 0.5 },
       // Night Vision's strength, 0..1 (glsl.js lightFloor; Off's lightmap takes it itself: vanilla.js)
@@ -134,6 +316,40 @@ export class Renderer {
       // the still and flowing water textures (the Shader Options' vanilla water, and Shaders OFF)
       uFlowLayers: { value: new THREE.Vector2(textures.manifest.textures.water_flow ? textures.manifest.textures.water_flow.layer : 0, textures.manifest.textures.lava_flow ? textures.manifest.textures.lava_flow.layer : 0) },
     };
+    this.outlineFS = new FullScreen(null);
+    this.outlineDepthMaterial = rawMat(OUTLINE_DEPTH_FS, {
+      uDepth: { value: null }, uNear: { value: 0.05 }, uFar: { value: 1000 },
+    });
+    this.outlineMaterial = rawMat(OUTLINE_FS, {
+      uDepth: { value: null }, uTexel: { value: new THREE.Vector2(1, 1) },
+      uColor: this.U.uChamsOutlineColor, uOpacity: { value: 0.9 },
+      uWidth: { value: 1 }, uSensitivity: { value: 0.05 }, uMaxDistance: { value: 0 }, uDistanceThin: { value: 0.5 },
+      uColor2: { value: new THREE.Vector3(1, 1, 1) }, uClock: this.U.uClock,
+      uFx1: { value: new THREE.Vector4(1, 0.5, 0, 1) }, uFx2: { value: new THREE.Vector4(0, 2, 0, 1) },
+      uFx3: { value: new THREE.Vector4(0.2, 0, 0.5, 1) }, uFx4: { value: new THREE.Vector4(0, 0, 24, 1) },
+      uFx5: { value: new THREE.Vector4(0, 0.15, 0.2, 1) }, uFx6: { value: new THREE.Vector4(0, 512, 0, 0) },
+    }, {
+      transparent: true, depthTest: false, depthWrite: false, toneMapped: false,
+      stencilWrite: true, stencilRef: 0x80, stencilFunc: THREE.NotEqualStencilFunc,
+      stencilFuncMask: 0x80, stencilWriteMask: 0, stencilZPass: THREE.KeepStencilOp,
+    });
+    this.outlinePresentMaterial = rawMat(OUTLINE_PRESENT_FS, { uColor: { value: null } });
+    this.liquidOutlineMaterial = rawMat(OUTLINE_FS, {
+      uDepth: this.outlineMaterial.uniforms.uDepth, uTexel: this.outlineMaterial.uniforms.uTexel,
+      uColor: this.U.uChamsOutlineColor, uOpacity: { value: 0.315 },
+      uWidth: this.outlineMaterial.uniforms.uWidth, uSensitivity: this.outlineMaterial.uniforms.uSensitivity,
+      uMaxDistance: this.outlineMaterial.uniforms.uMaxDistance,
+      uDistanceThin: this.outlineMaterial.uniforms.uDistanceThin,
+      uColor2: this.outlineMaterial.uniforms.uColor2, uClock: this.outlineMaterial.uniforms.uClock,
+      uFx1: this.outlineMaterial.uniforms.uFx1, uFx2: this.outlineMaterial.uniforms.uFx2,
+      uFx3: this.outlineMaterial.uniforms.uFx3, uFx4: this.outlineMaterial.uniforms.uFx4,
+      uFx5: this.outlineMaterial.uniforms.uFx5, uFx6: this.outlineMaterial.uniforms.uFx6,
+    }, {
+      transparent: true, depthTest: false, depthWrite: false, toneMapped: false,
+      stencilWrite: true, stencilRef: 0x80, stencilFunc: THREE.EqualStencilFunc,
+      stencilFuncMask: 0x80, stencilWriteMask: 0, stencilZPass: THREE.KeepStencilOp,
+    });
+    this.outlineDepthTarget = null;
     this.gl = r.getContext();
     // RIP Computer's realism: walkers parting the plants, Photon's wind, wet ground, explosions' flash and pieces (realism.js)
     this.real = new Realism(this);
@@ -142,10 +358,19 @@ export class Renderer {
        thing, so most of the screen never runs it; the game's blocks of cloud after the
        world) or its full chain after the world (post.js). render/looks.js. */
     applyLook(this, this.opts, true);
+    this.updateChamsOutlineSettings();
+    this.onLook(() => this.updateChamsOutlineSettings());
     // the block in your hand: drawn in the world just in front of the eye
     this.handScene = new THREE.Scene();
     this.hand = new THREE.Group();
     this.handScene.add(this.hand);
+    this.chamsOutlineMaterial = new THREE.LineBasicMaterial({
+      color: this.opts.chamsColor ?? 0x00ffff, depthTest: true, depthWrite: false, toneMapped: false,
+    });
+    this.heldOutlineMaterial = new THREE.LineBasicMaterial({
+      color: this.opts.chamsHeldOutlineColor ?? 0x00ffff, transparent: true,
+      opacity: this.opts.chamsHeldOutlineOpacity ?? 1, depthTest: true, depthWrite: false, toneMapped: false,
+    });
     this.swing = 0;
     // the player's own model: third person, its shadow, its armour, and the arms in first person
     this.avatar = new Avatar(this);
@@ -159,6 +384,8 @@ export class Renderer {
     this.columns = new Map();
     this.order = [];          // the same, nearest the camera first (inView)
     this.frame = 0;
+    this.starMotionAngles = new THREE.Vector3();
+    this.starMotionPreset = 'sky-follow';
     this.resize(canvas.clientWidth || 1280, canvas.clientHeight || 720);
   }
 
@@ -175,16 +402,21 @@ export class Renderer {
     this.rw = rw; this.rh = rh;
     // the canvas only given a size that is new: any size given to it, even its own, throws its picture away (a frame's stall)
     const size = (cw, ch) => { const c = this.r.domElement; if (c.width !== cw || c.height !== ch) this.r.setSize(cw, ch, false); };
+    if (this.main) {
+      if (this.main.depthTexture) this.main.depthTexture.dispose();
+      this.main.dispose();
+      this.main = null;
+    }
+    if (this.outlineDepthTarget) { this.outlineDepthTarget.dispose(); this.outlineDepthTarget = null; }
+    this.outlinePresentMaterial.uniforms.uColor.value = null;
     if (this.ldr) {
       // drawn at the render scale and stretched by the browser: the cheapest upscale there is
       size(rw, rh);
-      // (the full chain's pictures let go, if a look before this one had them)
-      if (this.main) { this.main.depthTexture.dispose(); this.main.dispose(); this.main = null; }
+      if (this.opts.chamsOutlineEnabled) this.makeSimpleOutlineTargets(rw, rh);
       if (this._post) this._post.release();
       return;
     }
     size(Math.round(w * dpr), Math.round(h * dpr));
-    if (this.main) this.main.dispose();
     this.main = new THREE.WebGLRenderTarget(rw, rh, { type: THREE.HalfFloatType, depthBuffer: true, stencilBuffer: true, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
     this.main.depthTexture = new THREE.DepthTexture(rw, rh, THREE.FloatType);
     this.post.resize(rw, rh);
@@ -194,21 +426,130 @@ export class Renderer {
     this.rw = rw; this.rh = rh;
   }
 
+  makeSimpleOutlineTargets(w, h) {
+    this.main = new THREE.WebGLRenderTarget(w, h, {
+      type: THREE.UnsignedByteType, depthBuffer: true, stencilBuffer: true,
+      minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+    });
+    this.main.depthTexture = new THREE.DepthTexture(w, h, THREE.FloatType);
+    this.outlineDepthTarget = floatTarget(w, h, {
+      format: THREE.RedFormat, type: THREE.FloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+    });
+    this.outlinePresentMaterial.uniforms.uColor.value = this.main.texture;
+  }
+
+  setChamsOutline(enabled) {
+    enabled = !!enabled;
+    if (this.opts.chamsOutlineEnabled === enabled) return;
+    this.opts.chamsOutlineEnabled = enabled;
+    this.updateChamsOutlineSettings();
+    if (this.ldr) this.resize(this.cw, this.ch);
+  }
+
+  updateChamsOutlineSettings() {
+    const o = this.opts, u = this.outlineMaterial.uniforms;
+    u.uOpacity.value = o.chamsOutlineOpacity ?? 0.9;
+    u.uWidth.value = o.chamsOutlineWidth ?? 1;
+    u.uSensitivity.value = o.chamsOutlineSensitivity ?? 0.05;
+    u.uMaxDistance.value = o.chamsOutlineDistance ?? 0;
+    u.uDistanceThin.value = o.chamsOutlineDistanceThin ?? 0.5;
+    const color = o.chamsOutlineSecondaryColor ?? 0xffffff;
+    this.outlineMaterial.uniforms.uColor2.value.set(((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255);
+    u.uFx1.value.set(o.chamsOutlineSoftness ?? 1, o.chamsOutlineDiagonal ?? 0.5,
+      o.chamsOutlineEdgeMode === 'sharp' ? 1 : o.chamsOutlineEdgeMode === 'double' ? 2 : 0,
+      o.chamsOutlineInnerOpacity ?? 1);
+    u.uFx2.value.set(o.chamsOutlineGlow ?? 0, o.chamsOutlineGlowWidth ?? 2,
+      o.chamsOutlinePulse ? 1 : 0, o.chamsOutlinePulseSpeed ?? 1);
+    u.uFx3.value.set(o.chamsOutlinePulseAmount ?? 0.2, o.chamsOutlineRainbow ? 1 : 0,
+      o.chamsOutlineRainbowSpeed ?? 0.5, o.chamsOutlineRainbowSaturation ?? 1);
+    u.uFx4.value.set(o.chamsOutlineColorBlend ?? 0, o.chamsOutlineDashes ? 1 : 0,
+      o.chamsOutlineDashScale ?? 24, o.chamsOutlineDashSpeed ?? 1);
+    u.uFx5.value.set(o.chamsOutlineFill ? 1 : 0, o.chamsOutlineFillOpacity ?? 0.15,
+      o.chamsOutlineCornerBoost ?? 0.2, o.chamsOutlineBrightness ?? 1);
+    const fadeStart = o.chamsOutlineFadeStart ?? 0;
+    u.uFx6.value.set(fadeStart, Math.max(fadeStart + 1, o.chamsOutlineFadeEnd ?? 512), 0, o.chamsOutlineBlur ?? 0);
+    this.liquidOutlineMaterial.uniforms.uOpacity.value = u.uOpacity.value * (o.chamsOutlineLiquidOpacity ?? 0.35);
+    const fluid = this.mats && this.mats.fluid;
+    if (fluid) {
+      const markLiquid = !!(o.chamsOutlineEnabled && (o.chamsOutlineLiquidOpacity ?? 0.35) < 1);
+      if (fluid.stencilWrite !== markLiquid) {
+        fluid.stencilWrite = markLiquid;
+        fluid.stencilRef = 0x80;
+        fluid.stencilFunc = THREE.AlwaysStencilFunc;
+        fluid.stencilFuncMask = 0x80;
+        fluid.stencilWriteMask = 0x80;
+        fluid.stencilZPass = THREE.ReplaceStencilOp;
+        fluid.stencilZFail = THREE.KeepStencilOp;
+        fluid.stencilFail = THREE.KeepStencilOp;
+        fluid.needsUpdate = true;
+      }
+    }
+  }
+
+  updateChamsMaterials() {
+    const transparent = !!(this.opts.chamsEnabled && this.opts.chamsTransparency);
+    const handMats = new Set([this.mats.handOpaque, this.mats.handCutout]);
+    const mats = [...handMats];
+    if (this.avatar) mats.push(this.avatar.mat, this.avatar.armMat, this.avatar.armorMat, this.avatar.capeMat, this.avatar.hatMat);
+    if (this.entityMeshes) mats.push(this.entityMeshes.mat);
+    for (const mat of mats) {
+      if (!mat) continue;
+      const depthWrite = handMats.has(mat) || !transparent;
+      if (mat.transparent !== transparent || mat.depthWrite !== depthWrite) {
+        mat.transparent = transparent;
+        mat.depthWrite = depthWrite;
+        mat.needsUpdate = true;
+      }
+    }
+    const handCutoutSide = transparent ? THREE.FrontSide : THREE.DoubleSide;
+    if (this.mats.handCutout && this.mats.handCutout.side !== handCutoutSide) {
+      this.mats.handCutout.side = handCutoutSide;
+      this.mats.handCutout.needsUpdate = true;
+    }
+  }
+
+  drawChamsOutline(target, depthTexture) {
+    if (!this.opts.chamsOutlineEnabled || !depthTexture) return;
+    const uniforms = this.outlineMaterial.uniforms;
+    uniforms.uDepth.value = depthTexture;
+    uniforms.uTexel.value.set(1 / this.rw, 1 / this.rh);
+    this.outlineFS.material = this.outlineMaterial;
+    this.outlineFS.render(this.r, target);
+    if (this.opts.chamsOutlineLiquidOpacity < 1) {
+      this.outlineFS.material = this.liquidOutlineMaterial;
+      this.outlineFS.render(this.r, target);
+    }
+  }
+
+  drawSimpleChamsOutline(camera) {
+    this.outlineDepthMaterial.uniforms.uDepth.value = this.main.depthTexture;
+    this.outlineDepthMaterial.uniforms.uNear.value = camera.near;
+    this.outlineDepthMaterial.uniforms.uFar.value = camera.far;
+    this.outlineFS.material = this.outlineDepthMaterial;
+    this.outlineFS.render(this.r, this.outlineDepthTarget);
+    this.drawChamsOutline(this.main, this.outlineDepthTarget.texture);
+  }
+
+  presentSimpleOutline() {
+    this.outlineFS.material = this.outlinePresentMaterial;
+    this.outlineFS.render(this.r, null);
+  }
+
   /* ---- chunk meshes ----
      Meshes arriving from the workers are queued and put on the GPU a few a
      frame, so a burst of them never stalls one frame. */
-  setColumn(cx, cz, mesh, urgent) {
+  setColumn(cx, cz, mesh, urgent, loadMs, previouslyLoaded = false) {
     const k = cx + ',' + cz;
     this.uploads = this.uploads || new Map();
     // a block you just broke or placed: on the graphics card now, not in turn
     if (urgent) {
       this.uploads.delete(k);
-      this.addColumn(cx, cz, mesh);
+      this.addColumn(cx, cz, mesh, loadMs, previouslyLoaded);
       this.r.resetState();
       this.visDirty = true;
       return;
     }
-    this.uploads.set(k, [cx, cz, mesh]);
+    this.uploads.set(k, [cx, cz, mesh, loadMs, previouslyLoaded]);
   }
   pumpUploads(budgetMs) {
     if (!this.uploads || !this.uploads.size) return;
@@ -229,7 +570,7 @@ export class Renderer {
       if (bytes > 0 && bytes + size > (this.opts.uploadBytes || 3e6)) break;
       bytes += size;
       this.uploads.delete(best[0] + ',' + best[1]);
-      this.addColumn(best[0], best[1], best[2]);
+      this.addColumn(best[0], best[1], best[2], best[3], best[4]);
       if (performance.now() - t0 > budgetMs) break;
     }
     // buffers and vertex arrays were bound behind three.js's back
@@ -268,6 +609,7 @@ export class Renderer {
       return m;
     };
     stand(this.scene, this.mats.opaque, ['opaque'], -10, false);
+    stand(this.trans, this.xrayMaterial, ['xray'], -11, false);
     /* Cut-out blocks near you: their depth first, then lit only where they are in
        front (materials.js cutoutDepthPass). Further out a tree is small on the
        screen, so its hidden layers cost less than drawing it twice: there they
@@ -279,10 +621,10 @@ export class Renderer {
       this.cutoutNearMesh = stand(this.scene, this.mats.cutoutNear, cut, -9.5, false, 1);
       stand(this.scene, this.mats.cutout, cut, -9, false, 2);
     } else stand(this.scene, this.mats.cutout, cut, -9, false);
-    for (let group = 1; group <= 3; group++) {
+    for (let group = 1; group <= 5; group++) {
       stand(this.trans, this.mats[`chestBlocker${group}`], ['chests'], 1e6 + group, false);
     }
-    for (let group = 1; group <= 3; group++) {
+    for (let group = 1; group <= 5; group++) {
       stand(this.trans, this.mats[`chest${group}`], ['chests'], 1e6 + 10 + group, false);
       stand(this.trans, this.mats[`chestFar${group}`], ['chests'], 1e6 + 20 + group, false);
     }
@@ -295,6 +637,9 @@ export class Renderer {
   }
   // band: 0 every column, 1 only those within cutoutNearDist of the camera, 2 only those beyond
   drawParts(material, kinds, cam, shadow, band) {
+    if (!shadow && this.opts.xrayEnabled) {
+      if (kinds[0] !== 'xray' || this.opts.xrayOres === false) return;
+    } else if (!shadow && kinds[0] === 'xray') return;
     const gl = this.gl;
     const prog = this.r.properties.get(material).currentProgram;
     if (!prog) return;
@@ -314,6 +659,7 @@ export class Renderer {
     for (let j = slice ? slice.from : 0; j < n; j++) {
       const col = list[back ? n - 1 - j : j];
       if (col.dead) continue;
+      if (!shadow && this.opts.xrayEnabled && this.opts.xrayDistance > 0 && col.dist > (this.opts.xrayDistance * 16) ** 2) continue;
       if (band && ((col.viewCam === cam && col.dist <= nd) !== (band === 1))) continue;
       if (fadeFor) {
         const f = Math.min(1, (now - col.born) / fadeFor);
@@ -402,6 +748,10 @@ export class Renderer {
       if (col.dead) continue;
       const d = distTo(col, ex, ez);
       col.dist = d;
+      if (col.fastLoadBox) {
+        const range = this.opts.fastLoadDistance | 0;
+        col.fastLoadBox.visible = this.opts.fastLoadMarkers !== false && (!range || d <= (range * 16) ** 2);
+      }
       if (col.plants) col.plants.hidden = d >= pd2;
       if (col.leafIn) col.leafIn.hidden = d >= ld2;
       // straight into its place among those before it (almost always where it already is)
@@ -413,13 +763,24 @@ export class Renderer {
     o.length = j;
     return o;
   }
-  addColumn(cx, cz, mesh) {
+  addColumn(cx, cz, mesh, loadMs, previouslyLoaded = false) {
     this.shadows.changed(cx, cz);
     // when it first came into the world (a new mesh of the same column keeps it): Chunk Fade
     const was = this.columns.get(cx + ',' + cz);
+    const measuredLoad = was ? was.loadMs : loadMs;
+    // A quick cache read is not a newly generated fast-load chunk.
+    const wasLoaded = !!previouslyLoaded || !!(was && was.previouslyLoaded);
+    const fastLoad = !wasLoaded && Number.isFinite(measuredLoad) && measuredLoad < (this.opts.fastLoadThreshold ?? 40);
     this.dropColumn(cx, cz);
     const gl = this.gl;
-    const col = { cx, cz, vis: mesh.vis, skyLow: mesh.skyLow, parts: [], byKind: {}, y0: 1e9, y1: -1e9, dist: 0, born: was ? was.born : (this.fadeNow || 0) };
+    const col = { cx, cz, vis: mesh.vis, skyLow: mesh.skyLow, parts: [], byKind: {}, y0: 1e9, y1: -1e9, dist: 0, born: was ? was.born : (this.fadeNow || 0), loadMs: measuredLoad, previouslyLoaded: wasLoaded, fastLoad, fastLoadBox: null };
+    if (wasLoaded || fastLoad) {
+      col.fastLoadBox = new THREE.LineSegments(this.fastLoadGeometry, wasLoaded ? this.previousLoadMaterial : this.fastLoadMaterial);
+      col.fastLoadBox.position.set(cx * 16 + 8, -63.5, cz * 16 + 8);
+      col.fastLoadBox.renderOrder = 1000;
+      col.fastLoadBox.frustumCulled = false;
+      this.scene.add(col.fastLoadBox);
+    }
     const add = (data, kind) => {
       if (!data || !data.count) return;
       // how tall the mesh is, for culling: from the first section with anything in it to the last
@@ -462,6 +823,7 @@ export class Renderer {
     add(mesh.fluid, 'fluid');
     add(mesh.translucent, 'translucent');
     add(mesh.chests, 'chests');
+    add(mesh.xray, 'xray');
     col.plants = col.byKind.plants || null;
     col.leafIn = col.byKind.leafIn || null;
     if (col.y0 > col.y1) { col.y0 = 0; col.y1 = 1; }
@@ -471,6 +833,28 @@ export class Renderer {
     if (at >= 0) { col.dist = was.dist; this.order[at] = col; }
     else this.order.push(col);
     this.glDirty = true;
+  }
+  refreshFastLoadMarkers() {
+    this.fastLoadMaterial.color.setHex(this.opts.fastLoadColor ?? 0x00ff00);
+    this.fastLoadMaterial.opacity = this.opts.fastLoadOpacity ?? 0.85;
+    this.previousLoadMaterial.opacity = this.opts.fastLoadOpacity ?? 0.85;
+    for (const col of this.columns.values()) {
+      const fastLoad = !col.previouslyLoaded && Number.isFinite(col.loadMs) && col.loadMs < (this.opts.fastLoadThreshold ?? 40);
+      const show = col.previouslyLoaded || fastLoad;
+      if (show && !col.fastLoadBox) {
+        col.fastLoadBox = new THREE.LineSegments(this.fastLoadGeometry, col.previouslyLoaded ? this.previousLoadMaterial : this.fastLoadMaterial);
+        col.fastLoadBox.position.set(col.cx * 16 + 8, -63.5, col.cz * 16 + 8);
+        col.fastLoadBox.renderOrder = 1000;
+        col.fastLoadBox.frustumCulled = false;
+        this.scene.add(col.fastLoadBox);
+      } else if (show && col.fastLoadBox) {
+        col.fastLoadBox.material = col.previouslyLoaded ? this.previousLoadMaterial : this.fastLoadMaterial;
+      } else if (!show && col.fastLoadBox) {
+        this.scene.remove(col.fastLoadBox);
+        col.fastLoadBox = null;
+      }
+      col.fastLoad = fastLoad;
+    }
   }
   /* The one list of indices every chunk mesh is drawn with (mesher.js Buf:
      each face four vertices, its triangles 0 1 2 and 0 2 3), long enough for
@@ -501,6 +885,9 @@ export class Renderer {
     const gl = this.gl;
     // a shadow map being built may still hold it in its list
     col.dead = true;
+    if (col.fastLoadBox) {
+      this.scene.remove(col.fastLoadBox);
+    }
     for (const p of col.parts) { gl.deleteVertexArray(p.vao); for (const b of p.bufs) gl.deleteBuffer(b); }
     this.columns.delete(k);
     this.visDirty = true;
@@ -598,7 +985,9 @@ export class Renderer {
   precompile() {
     const r = this.r, cam = this.camera;
     const extra = new THREE.Scene();
-    for (const k in this.mats) { const m = this.mats[k]; if (m && m.isMaterial) extra.add(new THREE.Mesh(this.standGeo, m)); }
+    const mats = Object.values(this.mats).concat(this.opts.chamsOutlineEnabled
+      ? [this.outlineDepthMaterial, this.outlineMaterial, this.outlinePresentMaterial].filter(Boolean) : []);
+    for (const m of mats) if (m && m.isMaterial) extra.add(new THREE.Mesh(this.standGeo, m));
     try {
       r.setRenderTarget(this.vanilla || this.ldr ? null : this.main);
       for (const s of [this.scene, this.trans, this.handScene, extra]) r.compile(s, cam);
@@ -668,10 +1057,13 @@ export class Renderer {
     const r = this.r, cam = this.camera, more = new THREE.Scene();
     // (with the look's full-screen passes: render/looks.js passMaterials)
     const mats = [this.mats.handOpaque, this.mats.handCutout].concat(extra || [], passMaterials(this));
+    if (this.opts.chamsOutlineEnabled) mats.push(this.outlineDepthMaterial, this.outlineMaterial, this.outlinePresentMaterial);
+    for (let i = mats.length - 1; i >= 0; i--) if (!mats[i]) mats.splice(i, 1);
     for (const m of mats) if (m) more.add(new THREE.Mesh(this.standGeo, m));
     const scenes = [this.scene, this.trans, this.handScene, this.shadowTerrain, this.shadowScene, more,
       this.vanilla ? null : this.ldr ? this.blockClouds && this.blockClouds.scene : this.blockCloudsHDR && this.blockCloudsHDR.scene,
       this.overlay && this.overlay.scene].filter(Boolean);
+    if (this.held && this.held.glowPass) scenes.push(this.held.glowPass.scene);
     if (this.vanilla) for (const o of [this.vanilla.skyFS, this.vanilla.cloudMesh]) if (o && o.scene) scenes.push(o.scene);
     // resolves once they are all built (or could not be), for whoever wants to wait for that
     return Promise.all(scenes.map(s => { try { return r.compileAsync(s, cam).catch(() => {}); } catch (e) { return null; /* drawn as before, built when first seen */ } }));
@@ -715,6 +1107,22 @@ export class Renderer {
   }
 
   /* ---- a frame ---- */
+  updateStarMotion(dt) {
+    const preset = STAR_MOTION_PRESETS.find(item => item.id === this.opts.starMotionPreset) || STAR_MOTION_PRESETS[0];
+    if (preset.id !== this.starMotionPreset) {
+      this.starMotionPreset = preset.id;
+      if (preset.id === 'sky-follow') this.starMotionAngles.set(0, 0, 0);
+    }
+    const elapsed = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, 0.1));
+    const wrap = angle => ((angle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    this.starMotionAngles.set(
+      wrap(this.starMotionAngles.x + preset.rates[0] * elapsed),
+      wrap(this.starMotionAngles.y + preset.rates[1] * elapsed),
+      wrap(this.starMotionAngles.z + preset.rates[2] * elapsed),
+    );
+    this.U.uStarMotion.value.copy(this.starMotionAngles);
+  }
+
   render(state, dt) {
     const U = this.U, r = this.r;
     // Detailed: what each texture is made of, once the textures are on the graphics card (materials.js)
@@ -724,6 +1132,8 @@ export class Renderer {
     U.uFrame.value = this.frame;
     U.uTime.value = state.time;
     U.uClock.value = performance.now() / 1000;
+    this.updateStarMotion(dt);
+    prepareEnvironmentalClarity(state, dt);
     // where the sun and moon are
     const sun = state.sunDir, moon = state.moonDir;
     U.uSunDir.value.copy(sun); U.uMoonDir.value.copy(moon);
@@ -745,20 +1155,25 @@ export class Renderer {
     const vd = state.dim, vf = (state.eye.y - 64 - (vd ? vd.minY : -64)) / (state.horizon === 0 ? 1 : 32);
     U.uVoid.value.set(vd && vd.sky !== 'normal' ? 0 : Math.max(0, Math.min(1, (state.horizon !== undefined ? state.horizon : 127) - state.eye.y)),
       vd && vd.sky === 'end' ? 0 : 1 - (Math.max(0, Math.min(1, vf)) ** 2) ** 3, Math.max(32, this.opts.renderDist * 16));
-    if (vd && vd.sky === 'end') endFlash(U.uClock.value, !!state.bossFog, U.uEndFlash.value); else U.uEndFlash.value.set(0, 0, 0, 0);
+    if (vd && vd.sky === 'end') endFlash(U.uClock.value, !!state.bossFog, U.uEndFlash.value);
+    else U.uEndFlash.value.set(0, 0, 0, 0);
     U.uMoonPhase.value = state.moonPhase;
     U.uRender.value = this.opts.renderDist * 16;
     if (state.waterTint) U.uWaterTint.value.copy(state.waterTint);
     const cam = this.camera;
     cam.position.copy(state.eye);
+    const cameraMotion = 1 - state.environmentalClarity.wobbleDampening;
     // roll and tiltPitch: the tip of the view when hurt (survival.js viewTilt)
-    cam.rotation.set(state.pitch + (state.tiltPitch || 0), state.yaw, state.roll || 0, 'YXZ');
+    cam.rotation.set(state.pitch + (state.tiltPitch || 0) * cameraMotion, state.yaw, (state.roll || 0) * cameraMotion, 'YXZ');
     // the player's model posed for this frame (and, in third person, the camera pulled back), in what it wears and holds
     if (state.player) this.checkWorn();
     this.avatar.update(state, dt, cam);
     if (state.player) this.figure.frame(state);
     // hurt: the view tilts away from the hit (combat/combat.js)
-    if (state.tilt) cam.quaternion.multiply(state.tilt);
+    if (state.tilt) {
+      if (cameraMotion < 1) cam.quaternion.multiply(this.environmentalTilt.identity().slerp(state.tilt, cameraMotion));
+      else cam.quaternion.multiply(state.tilt);
+    }
     // the held block takes the light where you stand, as the model does
     if (this.uHandLight && this.avatar.uLight) this.uHandLight.value.copy(this.avatar.uLight.value);
     cam.fov = state.fov;
@@ -768,8 +1183,17 @@ export class Renderer {
     cam.far = Math.max(this.opts.renderDist * 32 + 128, Math.hypot(cloudReach, 192 - state.eye.y) + 64);
     cam.updateProjectionMatrix();
     // the portal's and Nausea's wobble, and the water over your eyes (render/screenfx.js)
-    screenFx(this, cam, state);
+    screenFx(this, cam, state, dt);
+    U.uEndFlash.value.w = Math.min(U.uEndFlash.value.w, state.environmentalClarity.flashThreshold);
     cam.updateMatrixWorld();
+    if (this.tracerRenderer) {
+      const size = this.r.getDrawingBufferSize(this.tracerViewport);
+      this.tracerRenderer.update(Object.assign({}, state.tracerFrame, {
+        camera: cam,
+        viewportWidth: size.x,
+        viewportHeight: size.y,
+      }));
+    }
     U.uNear.value = cam.near; U.uFar.value = cam.far;
     // block pieces and the like, placed for this frame (render/particles.js)
     if (this.particles) this.particles.render(cam, state.alpha || 0);
@@ -807,10 +1231,12 @@ export class Renderer {
     if (this.vanilla) {
       // the game with no shaders: sky, blocks, water, clouds, hand, straight to the screen
       this.vanilla.update(state, this.opts, dt);
-      r.setRenderTarget(null);
+      const outline = this.opts.chamsOutlineEnabled && this.main && this.outlineDepthTarget;
+      r.setRenderTarget(outline ? this.main : null);
       r.setClearColor(0x000000, 1);
       r.clear(true, true, false);
-      this.vanilla.drawSky(r);
+      if (outline) this.vanilla.skyFS.render(r, this.main);
+      else this.vanilla.drawSky(r);
       r.render(this.scene, cam);
       if (this.overlay) this.overlay.render(r, cam);
       // Improved Transparency: the clouds and the rain go in before water and glass, so they show through them
@@ -819,7 +1245,9 @@ export class Renderer {
       this.clearThroughWallStencil();
       r.render(this.trans, cam);
       if (!it) this.vanilla.drawClouds(r, cam, state.time);
+      if (outline) this.drawSimpleChamsOutline(cam);
       this.drawHand(state, cam, dt);
+      if (outline) this.presentSimpleOutline();
       return;
     }
     // the exposure: under the sky the sky table works it out from the light there is (glsl.js EXPOSURE);
@@ -829,11 +1257,13 @@ export class Renderer {
     const cave = !sunless && state.skyAtEye < 1 ? 1 : 0;
     this.caveNow = this.caveNow === undefined ? cave : this.caveNow + (cave - this.caveNow) * Math.min(1, dt * 1.5);
     U.uCave.value = this.caveNow < 0.002 ? 0 : this.caveNow;
-    U.uExposure.value = (sunless ? (state.dim.id === 'the_end' ? 2.0 : 4.2) : 2.4) * Math.pow(2, this.opts.exposure || 0);
+    U.uExposure.value = (sunless ? (state.dim.id === 'the_end' ? 2.0 : 4.2) : 2.4) *
+      Math.pow(2, (this.opts.exposure || 0) + state.environmentalClarity.ambientBoost);
     if (this.ldr) {
+      const outline = this.opts.chamsOutlineEnabled && this.main && this.outlineDepthTarget;
       this.sky.setUniforms(U, cam.position.y);
       U.uFogK.value *= this.opts.fog === undefined ? 1 : this.opts.fog;
-      r.setRenderTarget(null);
+      r.setRenderTarget(outline ? this.main : null);
       r.setClearColor(0x000000, 1);
       r.clear(true, true, false);
       // the sky is the scene's last solid thing (render/looks.js)
@@ -848,7 +1278,9 @@ export class Renderer {
       this.clearThroughWallStencil();
       r.render(this.trans, cam);
       if (drawClouds && !it) this.blockClouds.draw(r, cam, state.time, clouds, cloudReach);
+      if (outline) this.drawSimpleChamsOutline(cam);
       this.drawHand(state, cam, dt);
+      if (outline) this.presentSimpleOutline();
       return;
     }
 
@@ -871,6 +1303,7 @@ export class Renderer {
     r.setRenderTarget(this.main);
     this.clearThroughWallStencil();
     r.render(this.trans, cam);
+    this.drawChamsOutline(this.main, this.post.linDepth.texture);
     // the hand, over everything, never inside a wall
     this.drawHand(state, cam, dt);
     // and all that comes after

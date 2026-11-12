@@ -52,7 +52,7 @@
    textures/gui/. The pack leaves button interiors see-through, so a
    translucent fill goes under them for legible text over the world.
 --------------------------------------------------------------------------- */
-import { Font, cssRGB } from './font.js?v=117';
+import { Font, cssRGB } from './font.js?v=118';
 
 /* ------------------------------ options ------------------------------ */
 
@@ -64,6 +64,8 @@ export const DEFAULT_KEYS = {
   hotbar1: 'Digit1', hotbar2: 'Digit2', hotbar3: 'Digit3', hotbar4: 'Digit4', hotbar5: 'Digit5',
   hotbar6: 'Digit6', hotbar7: 'Digit7', hotbar8: 'Digit8', hotbar9: 'Digit9',
   hideGui: 'F1', debug: 'F3', advancements: 'KeyL',
+  modMinimap: null, modPlayerOutline: null, modPlayerTags: null,
+  modBlockHighlights: null, modDropHighlights: null, modChunkMarkers: null, modXray: null, modChams: null, modAutoOffhand: null, modAutoTarget: null,
 };
 
 // a second key for any action (the Key Binds screen's second column): G breaks and H places, as the mouse's buttons do
@@ -87,6 +89,7 @@ export const DEFAULT_OPTIONS = {
   mipmapLevels: 4,         // 0-4
   entityShadows: true,
   entityDistance: 1,       // 0.5-5
+  logoutMarkerDistance: 256, // chunks; 0 hides logout markers
   cloudDistance: 64,       // chunks, 2-128
   cutoutLeaves: true,      // See-Through Leaves
   improvedTransparency: false,
@@ -101,6 +104,27 @@ export const DEFAULT_OPTIONS = {
   chunkFade: 0.75,         // seconds, 0-1
   glintSpeed: 0.5,         // 0-1
   glintStrength: 0.75,     // 0-1
+  glintThickness: 0.55,    // 0-1
+  glintScale: 1,            // 0.25-3
+  glintAngle: 350,          // degrees
+  glintLayerStrength: 0.5, // 0-1
+  glintColor: 0x803ff2,
+  glintSecondaryColor: 0x3926a8,
+  glintEnabled: true,
+  glintPulse: false,
+  glintPulseSpeed: 1,
+  glintPulseAmount: 0.25,
+  glintSparkle: 0,
+  glintSparkleScale: 2,
+  glintContrast: 1,
+  glintSoftness: 0.17,
+  glintLayerOffset: 0,
+  glintDistortion: 0,
+  glintRainbow: false,
+  glintRainbowSpeed: 0.5,
+  glintSecondaryMix: 1,
+  glintMaxBrightness: 2,
+  glintOpacity: 1,
   damageTilt: 1,           // 0-1
   // Shaders, the one extra button in Video Settings (ui/video.js, render/looks.js): off low medium high rip
   shaderLevel: 'off',
@@ -112,8 +136,208 @@ export const DEFAULT_OPTIONS = {
   renderScale: 'auto',     // 'auto' or 0.4-1
   guiScale: 0,             // 0 = auto
   brightness: 0.5,         // 0 moody - 1 bright
-  // Fullbright (the game menu and Video Settings, as the Fullbright mods: caves and night lit as by day; settings.js)
+  // Fullbright (Evilleoncraft Settings, as the Fullbright mods: caves and night lit as by day; settings.js)
   fullbright: false,
+  playerOutlineEnabled: true,
+  playerOutlineColor: 0x00ff00,
+  playerOutlineWidth: 3,
+  playerOutlineDistance: 0, // blocks; 0 is unlimited while position data is available
+  playerTagsEnabled: true,
+  playerTagDistance: 64,
+  playerTagHealth: true,
+  playerTagHunger: true,
+  playerTagArmor: true,
+  playerTagItems: true,
+  playerNameplateFontScale: 1,
+  playerNameplateOpacity: 1,
+  playerNameplateBackdropOpacity: 0.25,
+  playerNameplateEquipmentLayout: 'inline',
+  playerNameplateEquipmentDetail: 'names',
+  playerNameplateEnchantTiers: false,
+  playerNameplateDistanceScale: false,
+  playerNameplateLatency: false,
+  playerNameplateTeamColor: true,
+  playerNameplateOcclusionMemory: 500,
+  tracerEnabled: false,
+  tracerWidth: 2,
+  tracerHealthColors: true,
+  tracerPlayers: true,
+  tracerMobs: false,
+  tracerDistance: 64,
+  tracerAnchor: 'bottom',
+  tracerOpacityFade: 0.5,
+  tracerLineOfSight: true,
+  tracerRelationshipColors: true,
+  tracerLockOn: false,
+  tracerLockColor: 0xff5555,
+  singleplayerNoKnockback: false,
+  antiBlindEnabled: false,
+  antiBlindBlindnessOpacity: 0,
+  antiBlindDarknessOpacity: 0,
+  antiBlindNauseaOpacity: 0,
+  antiBlindRestoreFog: true,
+  antiBlindShakeDampening: 0.75,
+  antiBlindColorCorrection: 0,
+  antiBlindAmbientBoost: 0,
+  antiBlindFlashThreshold: 0.8,
+  antiBlindCustomOverlays: true,
+  antiBlindPotionParticles: false,
+  antiBlindTransitionTime: 0.25,
+  fastPlaceEnabled: false,
+  fastPlaceDelayReduction: 0.75,
+  fastPlaceTickCap: 4,
+  fastPlaceVelocityOffset: 0,
+  fastPlaceBlocksOnly: true,
+  fastPlaceAlignmentCorrection: false,
+  fastPlaceUpdateInterval: 200,
+  fastLoadMarkers: true,
+  fastLoadThreshold: 40, // milliseconds
+  fastLoadDistance: 256, // chunks; 0 is unlimited
+  fastLoadColor: 0x00ff00,
+  fastLoadOpacity: 0.85,
+  logoutMarkersEnabled: true,
+  logoutMarkerLabels: true,
+  logoutMarkerColor: 0xffff00,
+  blockHighlightsEnabled: true,
+  highlightChests: true,
+  highlightShulkers: true,
+  highlightContainers: true,
+  highlightSigns: true,
+  highlightBanners: true,
+  highlightOpacity: 0.5,
+  highlightTint: 0xffffff,
+  xrayEnabled: false,
+  xrayOres: true,
+  xrayOpacity: 0.75,
+  xrayDistance: 0, // chunks; 0 is unlimited
+  chamsEnabled: true,
+  chamsColor: 0x00ffff,
+  chamsEffectAmount: 1,
+  chamsTint: 0.45,
+  chamsHandGlowEnabled: true,
+  chamsHandGlowStrength: 1,
+  chamsHandGlowRadius: 10,
+  chamsHandGlowSoftness: 0.65,
+  chamsHandGlowOpacity: 0.6,
+  chamsRainbow: false,
+  chamsRainbowSpeed: 0.2,
+  chamsRainbowSaturation: 1,
+  chamsRainbowBlend: 1,
+  chamsRimStrength: 0.35,
+  chamsRimWidth: 3,
+  chamsGradientColor: 0xff00ff,
+  chamsGradientBlend: 0,
+  chamsSparkleStrength: 0.5,
+  chamsSparkleScale: 35,
+  chamsSparkleSpeed: 1,
+  chamsStyle: 'tint',
+  chamsOutlineEnabled: false,
+  chamsOutlineColor: 0x00ffff,
+  chamsOutlineOpacity: 0.9,
+  chamsOutlineLiquidOpacity: 0.35,
+  chamsOutlineWidth: 1,
+  chamsOutlineSensitivity: 0.05,
+  chamsOutlineDistance: 0,
+  chamsOutlineDistanceThin: 0.5,
+  chamsGlow: 0.35,
+  chamsSkyEnabled: true,
+  starMotionPreset: 'sky-follow',
+  jukeboxDanceEnabled: true,
+  chamsTransparency: true,
+  chamsOpacity: 0.65,
+  chamsFxBrightness: 0,
+  chamsFxSaturation: 1,
+  chamsFxContrast: 1,
+  chamsFxHue: 0,
+  chamsPulse: false,
+  chamsPulseSpeed: 1,
+  chamsPulseAmount: 0.2,
+  chamsShimmerSpeed: 0.15,
+  chamsShimmerScale: 26,
+  chamsShimmerIntensity: 0.75,
+  chamsOutlineSecondaryColor: 0xffffff,
+  chamsOutlineColorBlend: 0,
+  chamsOutlineRainbow: false,
+  chamsOutlineRainbowSpeed: 0.5,
+  chamsOutlineRainbowSaturation: 1,
+  chamsOutlineGlow: 0,
+  chamsOutlineGlowWidth: 2,
+  chamsOutlineSoftness: 0.6,
+  chamsOutlineDiagonal: 0,
+  chamsOutlineEdgeMode: 'soft',
+  chamsOutlinePulse: false,
+  chamsOutlinePulseSpeed: 1,
+  chamsOutlinePulseAmount: 0.2,
+  chamsOutlineFill: false,
+  chamsOutlineFillOpacity: 0.15,
+  chamsOutlineDashes: false,
+  chamsOutlineDashScale: 24,
+  chamsOutlineDashSpeed: 1,
+  chamsOutlineInnerOpacity: 1,
+  chamsOutlineCornerBoost: 0,
+  chamsOutlineFadeStart: 0,
+  chamsOutlineFadeEnd: 512,
+  chamsOutlineBrightness: 1,
+  chamsHeldOutlineEnabled: true,
+  chamsHeldOutlineColor: 0x00ffff,
+  chamsHeldOutlineOpacity: 1,
+  chamsHandOutlineEnabled: true,
+  chamsHandOutlineColor: 0x00ffff,
+  chamsHandOutlineOpacity: 1,
+  chamsHandOutlineWidth: 2,
+  chamsOutlineBlur: 1,
+  autoOffhandEnabled: false,
+  autoOffhandProfiles: Array.from({ length: 10 }, () => ({ enabled: false, itemId: 0, condition: 'health', threshold: 6 })),
+  autoTargetEnabled: false,
+  autoTargetTypes: 'zombie,skeleton,creeper,spider,enderman,witch,slime',
+  autoTargetRange: 3,
+  autoTargetTurnSpeed: 18,
+  autoTargetAimPoint: 'upper',
+  autoTargetPriority: 'nearest',
+  autoTargetAimTolerance: 2,
+  autoTargetSmoothing: 0,
+  autoTargetMinimumCharge: 1,
+  autoTargetAttackInterval: 0,
+  autoTargetRequireAttackKey: false,
+  autoTargetRequireWeapon: false,
+  autoTargetHostileOnly: false,
+  autoTargetIgnoreNamed: false,
+  autoTargetSkipHurt: false,
+  autoTargetPauseWhenHurt: false,
+  autoTargetPauseWhenUsing: false,
+  autoTargetPauseWhenMoving: false,
+  autoTargetLockTarget: false,
+  autoTargetRetargetDelay: 0,
+  autoArmorEnabled: false,
+  autoArmorRequireInventoryOpen: false,
+  autoArmorPauseWhenScreenOpen: true,
+  autoArmorPauseInCombat: true,
+  autoArmorCombatPause: 1500,
+  autoArmorSwapInterval: 250,
+  autoArmorDelayMin: 100,
+  autoArmorDelayMax: 300,
+  autoArmorDurabilityLimit: 10,
+  autoArmorIgnoreCurses: true,
+  autoArmorRatingFormula: 'weighted',
+  autoArmorArmorWeight: 1,
+  autoArmorToughnessWeight: 1,
+  autoArmorKnockbackWeight: 4,
+  autoArmorEnchantmentWeight: 1,
+  autoArmorDurabilityWeight: 0.5,
+  autoArmorProtectionWeight: 1,
+  autoArmorFireProtectionWeight: 0.35,
+  autoArmorBlastProtectionWeight: 0.35,
+  autoArmorProjectileProtectionWeight: 0.35,
+  autoArmorUnbreakingWeight: 0.2,
+  autoArmorMendingWeight: 0.75,
+  autoArmorThornsWeight: 0.15,
+  dropHighlightsEnabled: true,
+  dropHighlightColor: 0xffff00,
+  dropHighlightOpacity: 0.5,
+  dropHighlightDistance: 0, // blocks; 0 is unlimited
+  mapHighlightEnabled: true,
+  mapHighlightColor: 0xb3a000,
+  mapHighlightOpacity: 0.5,
   // the minimap (ui/minimap.js, after Xaero's Minimap's defaults): on/off, its size, zoom, Lock North,
   // the coordinates under it, the entity radar, cave mode (auto/off), the biome line and its lighting
   minimap: false,
@@ -125,6 +349,11 @@ export const DEFAULT_OPTIONS = {
   minimapCave: 'auto',     // auto (a 3x3 ceiling) or off
   minimapBiome: false,
   minimapLighting: true,
+  minimapRadarPlayers: true,
+  minimapRadarHostile: true,
+  minimapRadarMobs: true,
+  minimapRadarItems: true,
+  minimapRadarOther: true,
   bobbing: true,
   clouds: 'fancy',         // fancy fast off
   menuBlur: 5,             // 0-10
@@ -239,6 +468,42 @@ export class Options {
     this.save();
     for (const fn of this.listeners) { try { fn(k, v, this); } catch (e) { console.error(e); } }
   }
+  exportConfig() {
+    return JSON.stringify({ format: 'evilleoncraft2-config', version: 1, settings: this.data }, null, 2);
+  }
+  importConfig(input) {
+    const config = typeof input === 'string' ? JSON.parse(input) : input;
+    if (!config || config.format !== 'evilleoncraft2-config' || config.version !== 1 ||
+        !config.settings || typeof config.settings !== 'object' || Array.isArray(config.settings)) {
+      throw new Error('Unsupported or invalid Evilleoncraft 2 config.');
+    }
+    const updates = [];
+    for (const [key, incoming] of Object.entries(config.settings)) {
+      if (!Object.prototype.hasOwnProperty.call(DEFAULT_OPTIONS, key)) continue;
+      const current = this.data[key], fallback = DEFAULT_OPTIONS[key];
+      let value = incoming;
+      if (key === 'keys' || key === 'keys2' || key === 'skinParts') {
+        if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) continue;
+        value = Object.assign({}, current);
+        for (const [subKey, subValue] of Object.entries(incoming)) {
+          if (!Object.prototype.hasOwnProperty.call(current, subKey)) continue;
+          const expected = current[subKey];
+          if (subValue === null ? expected !== null : typeof subValue !== typeof expected) continue;
+          value[subKey] = subValue;
+        }
+      } else if (fallback !== null && typeof fallback === 'object') {
+        if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) continue;
+        value = clone(incoming);
+      } else if (fallback === null) {
+        if (incoming !== null && !['string', 'number', 'boolean'].includes(typeof incoming)) continue;
+        if (typeof incoming === 'number' && !Number.isFinite(incoming)) continue;
+      } else if (typeof incoming !== typeof fallback ||
+          (typeof incoming === 'number' && !Number.isFinite(incoming))) continue;
+      if (JSON.stringify(value) !== JSON.stringify(current)) updates.push([key, value]);
+    }
+    for (const [key, value] of updates) this.set(key, value);
+    return updates.length;
+  }
   reset(k) { this.set(k, clone(DEFAULT_OPTIONS[k])); }
   setKey(action, code) { const keys = Object.assign({}, this.data.keys); keys[action] = code; this.set('keys', keys); }
   setPart(part, on) { const p = Object.assign({}, this.data.skinParts); p[part] = on; this.set('skinParts', p); }
@@ -303,7 +568,7 @@ export class Gui {
     this.ctx = canvas.getContext('2d');
     this.base = base || new URL('../../textures/gui/', import.meta.url).href;
     if (!this.base.endsWith('/')) this.base += '/';
-    this.version = version || '?v=117';
+    this.version = version || '?v=118';
     this.options = options || new Options();
     this.hooks = hooks || {};
     this.sheets = new Map();

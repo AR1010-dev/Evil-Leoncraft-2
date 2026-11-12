@@ -23,12 +23,36 @@
    The item model numbers (where and how far round each kind sits) are the
    game's display settings for its block, flat, handheld and rod items.
 --------------------------------------------------------------------------- */
-import { blockGeometry, isFlatItem, shieldGeometry, tridentGeometry } from './blockmesh.js?v=117';
-import { setGlint } from './glint.js?v=117';
-import { gpuLayer as textureLayer, DRAW, itemId } from '../items.js?v=117';
+import { blockGeometry, isFlatItem, shieldGeometry, tridentGeometry } from './blockmesh.js?v=118';
+import { setGlint } from './glint.js?v=118';
+import { FullScreen, rawMat } from './sky.js?v=118';
+import { gpuLayer as textureLayer, DRAW, itemId } from '../items.js?v=118';
 const THREE = window.THREE;
 const PI = Math.PI, DEG = PI / 180;
 const wrap = a => a - 2 * PI * Math.round(a / (2 * PI));
+
+const HAND_GLOW_FS = /* glsl */`
+uniform sampler2D uMask;
+uniform vec2 uTexel;
+uniform float uRadius, uSoftness, uStrength, uOpacity;
+uniform vec3 uColor;
+in vec2 vUv;
+out vec4 outColor;
+float blurMask(float radius) {
+  vec2 d = uTexel * radius;
+  float a = texture(uMask, vUv).a * 0.25;
+  a += (texture(uMask, vUv + vec2(d.x, 0.0)).a + texture(uMask, vUv - vec2(d.x, 0.0)).a
+      + texture(uMask, vUv + vec2(0.0, d.y)).a + texture(uMask, vUv - vec2(0.0, d.y)).a) * 0.125;
+  a += (texture(uMask, vUv + d).a + texture(uMask, vUv - d).a
+      + texture(uMask, vUv + vec2(d.x, -d.y)).a + texture(uMask, vUv + vec2(-d.x, d.y)).a) * 0.0625;
+  return a;
+}
+void main() {
+  float tight = blurMask(uRadius * 0.35);
+  float soft = blurMask(uRadius);
+  float a = mix(tight, soft, uSoftness) * uOpacity;
+  outColor = vec4(uColor * uStrength, a);
+}`;
 
 /* ---- the kinds of held thing, and how each is placed ----
    The game's own numbers, from the display settings of its item models
@@ -192,6 +216,21 @@ export function heldGeometry(d) {
   return blockGeometry(d, d.iconMeta || 0);
 }
 
+function outlineGeometry(geometry) {
+  const source = geometry.getAttribute('aPos'), positions = new Float32Array(source.count * 3);
+  for (let i = 0; i < source.count; i++) {
+    positions[i * 3] = source.getX(i) / 32 - 8;
+    positions[i * 3 + 1] = source.getY(i) / 32;
+    positions[i * 3 + 2] = source.getZ(i) / 32 - 8;
+  }
+  const base = new THREE.BufferGeometry();
+  base.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  base.setIndex(geometry.index.array);
+  const edges = new THREE.EdgesGeometry(base, 1);
+  base.dispose();
+  return edges;
+}
+
 /* Where a hand would hold each base kind, in the item's own space (a block
    centred on the origin, a picture in the x-y plane): under a block, at a
    tool's handle (bottom left of its picture), at the foot of anything else.
@@ -208,6 +247,7 @@ export class Held {
     // the hand's own camera, with the depth squeezed to the front
     this.cam = new THREE.PerspectiveCamera(70, 1, 0.05, 16);
     this.cam.matrixAutoUpdate = true;
+    this.outlineMaterial = R.heldOutlineMaterial;
     // drawn with an ordinary depth test now (the hand is put in front by its camera instead)
     for (const k of ['handOpaque', 'handCutout']) if (R.mats[k]) R.mats[k].depthFunc = THREE.LessEqualDepth;
     // per hand (0 main, 1 off): what it should hold, what it shows, how far up it is (1 up, 0 out of sight)
@@ -220,6 +260,24 @@ export class Held {
     this.rot = new THREE.Matrix3();
     this.bobM = new THREE.Matrix4();
     this.u = new THREE.Matrix4(); this.c = new THREE.Vector3();
+    this.glowTarget = new THREE.WebGLRenderTarget(1, 1, {
+      format: THREE.RGBAFormat, type: THREE.UnsignedByteType,
+      minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+      depthBuffer: true, stencilBuffer: false,
+    });
+    this.glowSize = new THREE.Vector2();
+    this.glowClearColor = new THREE.Color();
+    this.glowUniforms = {
+      uMask: { value: this.glowTarget.texture },
+      uTexel: { value: new THREE.Vector2(1, 1) },
+      uRadius: { value: 5 }, uSoftness: { value: 0.65 },
+      uStrength: { value: 1 }, uOpacity: { value: 0.6 },
+      uColor: R.U.uChamsColor,
+    };
+    this.glowPass = new FullScreen(rawMat(HAND_GLOW_FS, this.glowUniforms, {
+      transparent: true, blending: THREE.AdditiveBlending,
+      depthTest: false, depthWrite: false, toneMapped: false,
+    }));
   }
 
   /* what a hand holds: an id from the DRAW table, or 0 */
@@ -248,6 +306,10 @@ export class Held {
     const { geometry: g, cutout } = heldGeometry(d);
     const m = new THREE.Mesh(g, cutout ? R.mats.handCutout : R.mats.handOpaque);
     m.frustumCulled = false; m.matrixAutoUpdate = false; m.visible = false;
+    const outline = new THREE.LineSegments(outlineGeometry(g), this.outlineMaterial);
+    outline.frustumCulled = false; outline.matrixAutoUpdate = false; outline.visible = false; outline.renderOrder = 1;
+    m.userData.chamsOutline = outline;
+    R.hand.add(outline);
     // the shader's face frames turn with the item
     const rot = this.rot, U = R.U;
     m.onBeforeRender = () => { rot.setFromMatrix4(m.matrixWorld); rot.multiplyScalar(1 / m.matrixWorld.getMaxScaleOnAxis()); U.uFaceRot.value.copy(rot); m.material.uniformsNeedUpdate = true; };
@@ -257,7 +319,15 @@ export class Held {
     R.hand.add(m);
     return m;
   }
-  drop(m) { if (!m) return; this.R.hand.remove(m); m.geometry.dispose(); }
+  drop(m) {
+    if (!m) return;
+    this.R.hand.remove(m);
+    if (m.userData.chamsOutline) {
+      this.R.hand.remove(m.userData.chamsOutline);
+      m.userData.chamsOutline.geometry.dispose();
+    }
+    m.geometry.dispose();
+  }
   swap(H) {
     if (H.show && H.show !== H.want) this.drop(H.show);
     H.show = H.want; H.showId = H.wantId;
@@ -344,6 +414,50 @@ export class Held {
      the main hand also follows the cube of the attack cooldown */
   // a gun's kick (Leon Network's Rifle): the main hand's item jumps back and up, then settles over a fifth of a second
   recoil(n) { this.kick = Math.max(this.kick || 0, n || 1); }
+  drawChamsGlow(cam) {
+    const R = this.R, o = R.opts;
+    if (!o.chamsEnabled || !o.chamsHandGlowEnabled || o.chamsHandGlowStrength <= 0 || o.chamsHandGlowRadius <= 0) return;
+    const r = R.r, size = this.glowSize;
+    r.getDrawingBufferSize(size);
+    if (size.x <= 0 || size.y <= 0) return;
+    const w = Math.max(1, Math.ceil(size.x * 0.5)), h = Math.max(1, Math.ceil(size.y * 0.5));
+    if (this.glowTarget.width !== w || this.glowTarget.height !== h) this.glowTarget.setSize(w, h);
+    const u = this.glowUniforms;
+    u.uTexel.value.set(1 / w, 1 / h);
+    u.uRadius.value = Math.max(0.5, o.chamsHandGlowRadius * w / size.x);
+    u.uSoftness.value = o.chamsHandGlowSoftness;
+    u.uStrength.value = o.chamsHandGlowStrength;
+    u.uOpacity.value = o.chamsHandGlowOpacity;
+
+    const target = r.getRenderTarget(), autoClear = r.autoClear;
+    const clearAlpha = r.getClearAlpha();
+    r.getClearColor(this.glowClearColor);
+    const children = R.handScene.children.map(child => [child, child.visible]);
+    const outlines = R.hand.children.map(child => child.userData.chamsOutline).filter(Boolean).map(line => [line, line.visible]);
+    try {
+      r.autoClear = true;
+      r.setClearColor(0x000000, 0);
+      r.setRenderTarget(this.glowTarget);
+      for (const [child] of children) child.visible = child === R.hand;
+      for (const [line] of outlines) line.visible = false;
+      r.render(R.handScene, cam);
+    } finally {
+      for (const [child, visible] of children) child.visible = visible;
+      for (const [line, visible] of outlines) line.visible = visible;
+      r.setClearColor(this.glowClearColor, clearAlpha);
+      r.setRenderTarget(target);
+      r.autoClear = autoClear;
+    }
+
+    r.autoClear = false;
+    try {
+      this.glowPass.render(r, target);
+    } finally {
+      r.setRenderTarget(target);
+      r.autoClear = autoClear;
+    }
+  }
+
   step(dt, cool) {
     if (this.kick) this.kick = Math.max(0, this.kick - dt * 5);
     const k = Math.min(1, dt * 8);
@@ -452,16 +566,32 @@ export class Held {
       if (side === 0 && this.kick > 0) { const e = this.kick * this.kick; M.premultiply(t.makeTranslation(0, 0.04 * e, 0.22 * e)); M.multiply(this.u.makeRotationX(0.5 * e)); }
       // the picture for it (a bow drawn back), when the pack has one
       const pl = this.pictureFor(H, use);
-      if (pl >= 0) { m.visible = false; m = this.variant(H, pl); }
-      if (H.variants) for (const v of H.variants.values()) if (v !== m) v.visible = false;
+      if (pl >= 0) {
+        m.visible = false;
+        if (m.userData.chamsOutline) m.userData.chamsOutline.visible = false;
+        m = this.variant(H, pl);
+      }
+      if (H.variants) for (const v of H.variants.values()) if (v !== m) {
+        v.visible = false;
+        if (v.userData.chamsOutline) v.userData.chamsOutline.visible = false;
+      }
       M.multiply(C.K).premultiply(B);
       m.matrix.multiplyMatrices(cam.matrixWorld, M);
       m.visible = true;
       m.matrixWorldNeedsUpdate = true;
+      const outline = m.userData.chamsOutline;
+      if (outline) {
+        outline.matrix.copy(m.matrix);
+        outline.matrixWorldNeedsUpdate = true;
+        outline.visible = R.opts.chamsEnabled === true && R.opts.chamsHeldOutlineEnabled !== false;
+      }
       if (m.userData.light !== lv) { m.userData.light = lv; setLight(m.geometry, lv); }
     }
     // the bare right arm only while the main hand holds nothing (the game never draws an arm under a held thing)
     A.setArms(cam.matrixWorld, this.arms[0], this.arms[1], !this.hands[0].show, false);
+    A.armOutline.visible = A.arm.visible && R.opts.chamsEnabled === true && R.opts.chamsHandOutlineEnabled !== false;
+    R.r.getDrawingBufferSize(R.U.uChamsHandOutlineViewport.value);
+    this.drawChamsGlow(hc);
     R.r.render(R.handScene, hc);
   }
 }

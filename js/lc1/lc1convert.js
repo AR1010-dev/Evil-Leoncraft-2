@@ -471,7 +471,7 @@
       const off = Y_OFF[d], rows = ROWS[d];
       const put = (x, y, z, name, meta) => {
         const row = y + off;
-        if (row < rows[0] || row > rows[1]) { report.dropped.outOfRange++; return; }
+        if (row < rows[0] || row > rojoinws[1]) { report.dropped.outOfRange++; return; }
         const k = x + ',' + row + ',' + z;
         if (!out.placed.has(k)) report.cells[d]++;
         out.placed.set(k, [x, row, z, name, meta]);

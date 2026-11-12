@@ -16,9 +16,10 @@
      exposure    the scene's average brightness, adapted to over a second
      final       AgX tone mapping, a little vignette, sRGB, then FXAA
 --------------------------------------------------------------------------- */
-import { COMMON, SHADOW, TONEMAP, ATMOS, LIGHTS, TONE_CURVES, VOID } from './glsl.js?v=117';
-import { FullScreen, rawMat, floatTarget } from './sky.js?v=117';
-import { END_FLASH_GLSL } from './endflash.js?v=117';
+import { COMMON, SHADOW, TONEMAP, ATMOS, LIGHTS, TONE_CURVES, VOID } from './glsl.js?v=118';
+import { FullScreen, rawMat, floatTarget } from './sky.js?v=118';
+import { END_FLASH_GLSL } from './endflash.js?v=118';
+import { STAR_MOTION_GLSL } from './star-motion.js?v=118';
 const THREE = window.THREE;
 /* How much brighter the day sky is drawn than the eye has it (on top of 1): at noon our sky, exposed for
    the land, was a grey blue about half as bright on the screen as the game's light blue (FS_FINAL) */
@@ -32,11 +33,18 @@ const mat = (fs, u, extra) => {
 
 const SKYFN = /* glsl */`
 uniform sampler2D uView;
+uniform vec3 uChamsColor;
+uniform float uChamsEnabled, uChamsSky, uChamsTint;
 vec3 skyRadiance(vec3 d) {
   float elev = asin(clamp(d.y, -1.0, 1.0));
   float v = 0.5 + 0.5 * sign(elev) * sqrt(abs(elev) / (PI * 0.5));
   float az = atan(d.z, d.x); if (az < 0.0) az += TAU;
-  return texture(uView, vec2(az / TAU, v)).rgb;
+  vec3 sky = texture(uView, vec2(az / TAU, v)).rgb;
+  if (uChamsEnabled > 0.5 && uChamsSky > 0.5) {
+    vec3 tint = pow(max(uChamsColor, vec3(0.0)), vec3(2.2));
+    sky = mix(sky, tint * max(dot(sky, vec3(0.2126, 0.7152, 0.0722)), 1e-5), clamp(uChamsTint, 0.0, 1.0));
+  }
+  return sky;
 }
 `;
 const RECON = /* glsl */`
@@ -197,7 +205,7 @@ void main() {
 }`;
 
 /* ---- composite ---- */
-const FS_COMP = COMMON + RECON + SKYFN + VOID + TONEMAP + END_FLASH_GLSL + /* glsl */`
+const FS_COMP = COMMON + RECON + SKYFN + VOID + TONEMAP + END_FLASH_GLSL + STAR_MOTION_GLSL + /* glsl */`
 uniform sampler2D uColor, uDepth, uVL, uClouds, uAmbient, uMoon, uExpoTex;
 uniform vec3 uSunDir, uMoonDir;
 uniform float uTime, uEyeInWater, uRender, uMoonPhase, uSkyAtEye;
@@ -260,6 +268,7 @@ vec3 puddleLook(vec3 col, vec3 wp, vec3 rd, float dist, float k) {
 }
 float shutAt(float dist, float d) { return uShut.z > 0.0 ? uShut.z * (d >= 1.0 ? 1.0 : smoothstep(uShut.x, uShut.y, dist)) : 0.0; }
 vec3 stars(vec3 d) {
+  d = starMotionDirection(d);
   vec3 p = d * 220.0;
   vec3 i = floor(p), f = fract(p);
   float h = hash13(i);

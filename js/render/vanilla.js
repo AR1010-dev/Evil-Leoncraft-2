@@ -25,10 +25,12 @@
    No shadow map, no post-processing, drawn straight to the screen at full
    resolution with nearest-neighbour textures.
 --------------------------------------------------------------------------- */
-import { COMMON, FILTER } from './glsl.js?v=117';
-import { FullScreen, VS_FULL } from './sky.js?v=117';
-import { BlockClouds } from './clouds.js?v=117';
-import { END_FLASH_GLSL, END_FLASH_COLOUR } from './endflash.js?v=117';
+import { COMMON, FILTER } from './glsl.js?v=118';
+import { CHAMS_CUSTOM_STYLES } from './chams-styles.js?v=118';
+import { FullScreen, VS_FULL } from './sky.js?v=118';
+import { BlockClouds } from './clouds.js?v=118';
+import { END_FLASH_GLSL, END_FLASH_COLOUR } from './endflash.js?v=118';
+import { STAR_MOTION_GLSL } from './star-motion.js?v=118';
 const THREE = window.THREE;
 
 // the game's rain and thunder colour shift: towards a grey of the colour's own brightness times k
@@ -45,6 +47,18 @@ uniform sampler2D uLightmap;
 uniform vec3 uFogColor;
 uniform vec3 uFog;              // start, end, shape (0 sphere, 1 cylinder)
 uniform float uConstAmb;        // the Nether: top and bottom faces both 0.9 (js/dims.js constAmb)
+uniform float uHighlightChest, uHighlightShulker, uHighlightContainer, uHighlightSign, uHighlightBanner;
+uniform float uHighlightOpacity;
+uniform vec3 uHighlightTint;
+uniform float uChamsEnabled;
+uniform float uChamsTransparency, uChamsOpacity;
+uniform float uChamsStyle;
+uniform vec3 uChamsColor;
+uniform float uChamsTint;
+uniform vec4 uChamsFx1, uChamsFx2, uChamsFx3;
+uniform vec4 uChamsFx4, uChamsFx5, uChamsFx6;
+uniform vec3 uChamsGradientColor;
+` + CHAMS_CUSTOM_STYLES + /* glsl */`
 vec3 lightmapAt(float sky, float block) {
   return texture(uLightmap, (vec2(block, sky) * 15.0 + 0.5) / 16.0).rgb;
 }
@@ -56,10 +70,75 @@ vec3 linearFog(vec3 c, float d) {
 }
 // the face shades the game gives each side of a block (0 +x, 1 -x, 2 +y, 3 -y, 4 +z, 5 -z)
 float faceShade(int f) { return f == 2 ? mix(1.0, 0.9, uConstAmb) : f == 3 ? mix(0.5, 0.9, uConstAmb) : f >= 4 ? 0.8 : 0.6; }
+vec3 faceNormal(int f) {
+  return f == 0 ? vec3(1.0, 0.0, 0.0)
+       : f == 1 ? vec3(-1.0, 0.0, 0.0)
+       : f == 2 ? vec3(0.0, 1.0, 0.0)
+       : f == 3 ? vec3(0.0, -1.0, 0.0)
+       : f == 4 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 0.0, -1.0);
+}
 // how the game lights a mob or an item: two fixed lights and 0.4 everywhere (in the Nether the second from below)
 float entityShade(vec3 n) {
   vec3 l0 = normalize(vec3(0.2, 1.0, -0.7)), l1 = normalize(vec3(-0.2, uConstAmb > 0.5 ? -1.0 : 1.0, 0.7));
   return min(1.0, (max(0.0, dot(l0, n)) + max(0.0, dot(l1, n))) * 0.6 + 0.4);
+}
+vec3 chamsRainbow(float hue, float saturation) {
+  vec3 p = abs(fract(hue + vec3(0.0, 0.666667, 0.333333)) * 6.0 - 3.0);
+  return mix(vec3(1.0), clamp(p - 1.0, 0.0, 1.0), saturation);
+}
+vec3 chamsColor(vec3 c, vec2 uv, float t, vec3 N, vec3 V, vec3 worldPos) {
+  vec2 patternUv = chamsWorldUv(worldPos);
+  vec3 color = c;
+  if (uChamsStyle < 0.5) {
+    color = mix(c, uChamsColor, uChamsTint);
+    if (uChamsFx4.x > 0.5) {
+      vec3 rainbow = chamsRainbow(t * uChamsFx4.y + patternUv.x * 0.18, uChamsFx4.z);
+      color = mix(color, rainbow, clamp(uChamsFx4.w, 0.0, 1.0));
+    }
+    color = mix(color, uChamsGradientColor, clamp(0.5 + patternUv.y * 0.08, 0.0, 1.0) * clamp(uChamsFx5.z, 0.0, 1.0));
+    color += vec3(uChamsFx1.x);
+    float grey = dot(color, vec3(0.299, 0.587, 0.114));
+    color = mix(vec3(grey), color, uChamsFx1.y);
+    color = (color - 0.5) * uChamsFx1.z + 0.5;
+    float cs = cos(uChamsFx1.w), sn = sin(uChamsFx1.w);
+    vec3 axis = normalize(vec3(1.0));
+    color = color * cs + cross(axis, color) * sn + axis * dot(axis, color) * (1.0 - cs);
+    float pulse = uChamsFx2.x > 0.5 ? 1.0 - uChamsFx2.z * 0.5 + uChamsFx2.z * 0.5 * sin(t * uChamsFx2.y * 6.2831853) : 1.0;
+    color = max(color, vec3(0.0)) * pulse;
+  } else if (uChamsStyle < 1.5) {
+    float shimmer = pow(max(0.0, sin((patternUv.x + patternUv.y * 0.5 - t * uChamsFx2.w) * uChamsFx3.x)), 4.0);
+    color += uChamsColor * shimmer * uChamsFx3.y;
+  } else if (uChamsStyle < 2.5) {
+    float edge = pow(1.0 - max(dot(normalize(N), normalize(V)), 0.0), 2.2);
+    float hue = t * max(uChamsFx4.y, 0.1) + patternUv.x * 0.72 + patternUv.y * 0.38 + edge * 0.22;
+    vec3 spectrum = chamsRainbow(hue, 0.9);
+    float sweep = pow(max(0.0, sin((patternUv.x * 7.0 + patternUv.y * 4.0 - t * 0.8) * 6.2831853)), 8.0);
+    float scan = 0.96 + 0.04 * sin((patternUv.y * 42.0 + patternUv.x * 6.0 - t * 0.7) * 6.2831853);
+    color = mix(c, spectrum, 0.48 + edge * 0.34);
+    color = color * scan + uChamsColor * (edge * 0.28 + sweep * 0.16);
+  } else if (uChamsStyle < 3.5) {
+    float pulse = 0.5 + 0.5 * sin(t * uChamsFx2.y * 6.2831853);
+    color = mix(c, uChamsColor, 0.2 + pulse * 0.55);
+  } else {
+    color = chamsCustomStyle(c, patternUv, t, N, V, uChamsStyle);
+  }
+  if (uChamsFx6.x > 0.001) {
+    float sparkleScale = max(uChamsFx6.y * 0.2, 1.0);
+    vec2 sparkleCell = patternUv * sparkleScale;
+    vec2 sparkleId = floor(sparkleCell);
+    float sparkleSeed = fract(sin(dot(sparkleId, vec2(127.1, 311.7))) * 43758.5453);
+    float sparkleSeedY = fract(sparkleSeed * 31.7);
+    vec2 sparklePos = fract(sparkleCell) - vec2(sparkleSeed, sparkleSeedY);
+    float sparkleX = 1.0 - smoothstep(0.01, 0.045, abs(sparklePos.x));
+    float sparkleY = 1.0 - smoothstep(0.06, 0.15, abs(sparklePos.y));
+    float sparkleStar = max(sparkleX * sparkleY,
+                            (1.0 - smoothstep(0.01, 0.045, abs(sparklePos.y)))
+                            * (1.0 - smoothstep(0.06, 0.15, abs(sparklePos.x))));
+    float twinkle = 0.35 + 0.65 * pow(0.5 + 0.5 * sin(t * uChamsFx6.z * 6.2831853 + sparkleSeed * 6.2831853), 3.0);
+    color += uChamsColor * sparkleStar * twinkle * uChamsFx6.x;
+  }
+  float rim = pow(1.0 - max(dot(normalize(N), normalize(V)), 0.0), max(uChamsFx5.y, 0.25));
+  return color + uChamsColor * rim * uChamsFx5.x;
 }
 `;
 
@@ -73,12 +152,14 @@ layout(location = 0) in uvec4 aPos; layout(location = 1) in uvec4 aA; layout(loc
 #define aL vec4(aL)
 #define aC vec4(aC)
 uniform vec3 uChunk;
-out vec2 vUv; out vec3 vShade; out float vFogD; out float vWorldDist; out float vGroup; out vec3 vTint;
-flat out float vLayer; flat out int vFlags;
+out vec2 vUv; out vec3 vShade; out vec3 vWorld; out float vFogD; out float vGroup; out vec3 vTint;
+flat out float vLayer; flat out int vFlags, vNormal;
 void main() {
   vec4 world = modelMatrix * vec4(aPos.xyz / 32.0 - vec3(8.0, 0.0, 8.0) + uChunk, 1.0);
   int nw = int(aA.z + 0.5);
   int flags = int(aA.w + 0.5);
+  vWorld = world.xyz;
+  vNormal = nw & 7;
   vec4 L = aL / 255.0;
   bool plant = (flags & 32) != 0;
   // crossed plants have no face shade and no corner shade, as their models say
@@ -96,7 +177,6 @@ void main() {
   vLayer = aPos.w;
   vFlags = flags;
   vFogD = fogDistance(world.xyz - cameraPosition);
-  vWorldDist = length(world.xyz - cameraPosition);
   /* the camera's turn on the point's place from the eye, never viewMatrix on the place in the world: far from
      the middle of the world (a few thousand blocks out) viewMatrix's big shift and the big place cancel, and what
      is left was rounded differently for every corner and every turn of the camera, so faces a sixteenth apart
@@ -109,8 +189,9 @@ const TERRAIN_FS = /* glsl */`
 uniform sampler2DArray uAlbedo;
 uniform sampler2D uLayerInfo;
 uniform float uTime;
-in vec2 vUv; in vec3 vShade; in float vFogD; in float vWorldDist; in float vGroup; in vec3 vTint;
-flat in float vLayer; flat in int vFlags;
+uniform vec3 cameraPosition;
+in vec2 vUv; in vec3 vShade; in vec3 vWorld; in float vFogD; in float vGroup; in vec3 vTint;
+flat in float vLayer; flat in int vFlags, vNormal;
 layout(location = 0) out vec4 outColor;
 // an animated texture steps through its frames, as the game's do
 float frameOf(float layer) {
@@ -147,25 +228,58 @@ void main() {
     vec4 ov = texture(uAlbedo, vec3(uv, vLayer + 1.0));
     c = mix(c, ov.rgb * vTint, ov.a);
   } else if (tinted) c *= vTint;
+#ifdef HAND
+  if (uChamsEnabled > 0.5) {
+    vec3 N = (vFlags & 32) != 0 ? vec3(0.0, 1.0, 0.0) : faceNormal(vNormal);
+    if (!gl_FrontFacing) N = -N;
+    c = mix(c, chamsColor(c, vUv, uTime, N, normalize(cameraPosition - vWorld), vWorld), clamp(uChamsEffectAmount, 0.0, 1.0));
+  }
+#endif
   // fast leaves: solid, the gaps a dark leafy shade
   if ((vFlags & 128) != 0 && alb.a < 0.5) c = vTint * 0.42;
+#ifndef HAND
+  if (uChamsEnabled > 0.5) {
+    vec3 N = (vFlags & 32) != 0 ? vec3(0.0, 1.0, 0.0) : faceNormal(vNormal);
+    if (!gl_FrontFacing && (vFlags & 32) == 0) N = -N;
+    c = mix(c, chamsColor(c, vUv, uTime, N, normalize(cameraPosition - vWorld), vWorld), clamp(uChamsEffectAmount, 0.0, 1.0));
+  }
+#endif
   c *= vShade;
   c = linearFog(c, vFogD);
   // Chunk Fade: a column just come into the world fades in from the fog
   c = mix(uFogColor, c, uChunkFade);
+  float alpha = 1.0;
+#ifdef HAND
+  if (uChamsEnabled > 0.5 && uChamsTransparency > 0.5) alpha = uChamsOpacity;
+#endif
 #ifdef CHEST_THROUGH_WALL
 #ifdef CHEST_GROUP
   if (int(vGroup + 0.5) != CHEST_GROUP) discard;
+#if CHEST_GROUP == 1
+  if (uHighlightChest < 0.5) discard;
+#elif CHEST_GROUP == 2
+  if (uHighlightShulker < 0.5) discard;
+#elif CHEST_GROUP == 3
+  if (uHighlightContainer < 0.5) discard;
+#elif CHEST_GROUP == 4
+  if (uHighlightSign < 0.5) discard;
+#elif CHEST_GROUP == 5
+  if (uHighlightBanner < 0.5) discard;
+#endif
 #endif
 #ifdef CHEST_FAR
-  if (vWorldDist <= 10.0) discard;
+  alpha = uHighlightOpacity;
 #endif
-  c = vTint;
+#ifdef CHEST_FAR
+  c = vTint * uHighlightTint;
+#else
+  c = vTint * uHighlightTint * 0.75;
+#endif
 #endif
 #ifdef TRANSLUCENT
   outColor = vec4(c, alb.a);
 #else
-  outColor = vec4(c, 1.0);
+  outColor = vec4(c, alpha);
 #endif
 }`;
 
@@ -254,7 +368,7 @@ void main() {
 }`;
 
 /* ---- the sky: one pass over the whole screen, before the world ---- */
-const SKY_FS = COMMON + END_FLASH_GLSL + /* glsl */`
+const SKY_FS = COMMON + END_FLASH_GLSL + STAR_MOTION_GLSL + /* glsl */`
 uniform mat4 uInvViewProj;
 uniform vec3 uCamPos, uSkyColor, uFogColor, uVSun;
 uniform vec4 uSunrise;          // colour and strength of the sunrise fan
@@ -316,6 +430,7 @@ void main() {
     float a = atan(uVSun.x, uVSun.y);
     float ca = cos(a), sa = sin(a);
     vec3 sd = vec3(rd.x * ca - rd.y * sa, rd.x * sa + rd.y * ca, rd.z);
+    sd = starMotionDirection(sd);
     vec3 g = sd * 90.0, i = floor(g);
     float h = hash13(i);
     if (h > 0.986) {
@@ -459,7 +574,8 @@ export function nightVision(state) {
 function blindness(state) {
   const e = state && state.effects && state.effects.blindness;
   if (!e || e.ticks === 0) return 0;
-  return e.ticks === -1 ? 1 : Math.min(1, e.ticks / 20);
+  const opacity = state && state.environmentalClarity ? state.environmentalClarity.blindnessOpacity : 1;
+  return (e.ticks === -1 ? 1 : Math.min(1, e.ticks / 20)) * opacity;
 }
 // Darkness's strength (0..1): it comes in over 22 ticks and goes over its last 22, as the game blends it
 // (eased once a frame by whichever look is drawing: this file's update or dim/look.js)
@@ -468,18 +584,23 @@ function darkness(state, dt) {
   const e = state && state.effects && state.effects.darkness;
   const want = !e || e.ticks === 0 ? 0 : e.ticks === -1 ? 1 : Math.min(1, e.ticks / 22);
   darkB = want > darkB ? Math.min(want, darkB + Math.min(0.25, dt) * 20 / 22) : want;
-  return darkB;
+  const opacity = state && state.environmentalClarity ? state.environmentalClarity.darknessOpacity : 1;
+  return darkB * opacity;
 }
 /* The black fog of Blindness and Darkness for the shader looks (glsl.js uShut): where it starts, where it is
    whole, and how strong (0 none), out of a render distance of R blocks; as the Off look's fog above. */
 export function shutFog(state, dt, R, out) {
   const bl = blindness(state), dk = darkness(state, dt);
   if (bl <= 0 && dk <= 0) return out.set(0, 1, 0);
-  const f = bl > 0 ? R + (5 - R) * bl : R + (15 - R) * dk;
-  return out.set(bl > 0 ? f * 0.25 : f * 0.75, f, Math.max(bl, dk));
+  const clarity = state && state.environmentalClarity;
+  const restore = clarity ? clarity.fogRestoration : 0;
+  const correction = clarity ? clarity.colorCorrection : 0;
+  const bRange = bl * (1 - restore), dRange = dk * (1 - restore);
+  const f = bRange > 0 ? R + (5 - R) * bRange : R + (15 - R) * dRange;
+  return out.set(bRange > 0 ? f * 0.25 : f * 0.75, f, Math.max(bl, dk) * (1 - correction));
 }
 const ZERO4 = [0, 0, 0, 0];
-/* Fullbright (Video Settings, the game menu): what the Fullbright mods do, the
+/* Fullbright (Evilleoncraft Settings): what the Fullbright mods do, the
    game's gamma (Brightness) set to 1500% instead of 0..100%. Every cell of the
    lightmap comes out at or next to full white, so caves, the night, the Nether
    and the End are lit as at noon; the face shades and the textures' own
@@ -563,9 +684,16 @@ export class Vanilla {
     const bl = blindness(state), dk = darkness(state, dt);
     const dkPulse = dk > 0 ? Math.max(0, Math.cos(state.time * 20 * Math.PI * 0.025) * 0.45 * dk) : 0;
     // (the End's sky light is off but for its flashes, when it comes up in its purple: render/endflash.js)
+    const clarity = state.environmentalClarity;
+    const flash = Math.min(1, wx.flash || 0);
+    const flashThreshold = clarity ? clarity.flashThreshold : 1;
+    const visualFlash = Math.min(flash, flashThreshold);
+    const flashLight = flash > 0 ? (flashThreshold >= 1 ? 1 : visualFlash) : 0;
+    const lightingDarkness = dk * (1 - (clarity ? clarity.colorCorrection : 0));
     const ef = D && D.sky === 'end' ? U.uEndFlash.value.w : 0;
-    this.makeLightmap(sl ? (wx.flash > 0 ? 1 : sl[0] * (1 - rain * 5 / 16) * (1 - thunder * 5 / 16)) : ef * END_FLASH_LIGHT, sl || (ef > 0 ? END_SKY : ZERO4), AMBIENT_LIGHT[D ? D.id : 'overworld'] || AMBIENT_LIGHT.overworld,
-      Math.max(0, (opts.fullbright ? FULLBRIGHT_GAMMA : opts.brightness === undefined ? 0.5 : opts.brightness) - dk), nightVision(state), dkPulse);
+    this.makeLightmap(sl ? Math.max(flashLight, sl[0] * (1 - rain * 5 / 16) * (1 - thunder * 5 / 16)) : ef * END_FLASH_LIGHT, sl || (ef > 0 ? END_SKY : ZERO4), AMBIENT_LIGHT[D ? D.id : 'overworld'] || AMBIENT_LIGHT.overworld,
+      Math.max(0, (opts.fullbright ? FULLBRIGHT_GAMMA : opts.brightness === undefined ? 0.5 : opts.brightness) +
+        (clarity ? clarity.ambientBoost : 0) - lightingDarkness), nightVision(state), dkPulse * (1 - (clarity ? clarity.colorCorrection : 0)));
     // the sky and fog colours of the biome you are in, eased so a border does not snap
     const b = state.biome;
     if (b && b.sky !== undefined) rgb(b.sky, this.tmp); else skyColour(b ? b.temp : 0.8, this.tmp);
@@ -576,7 +704,12 @@ export class Vanilla {
     this.colorsSet = true;
     const sky = U.uSkyColor.value.copy(this.skyC).multiplyScalar(daylight);
     greyTowards(sky, rain * 0.75, 0.6); greyTowards(sky, thunder * 0.75, 0.2);
-    if (wx.flash) { const f = Math.min(1, wx.flash) * 0.45; sky.set(sky.x * (1 - f) + 0.8 * f, sky.y * (1 - f) + 0.8 * f, sky.z * (1 - f) + f); }
+    if (visualFlash) { const f = visualFlash * 0.45; sky.set(sky.x * (1 - f) + 0.8 * f, sky.y * (1 - f) + 0.8 * f, sky.z * (1 - f) + f); }
+    if (opts.chamsEnabled && opts.chamsSkyEnabled) {
+      const color = opts.chamsColor ?? 0x00ffff, tint = Math.max(0, Math.min(1, opts.chamsTint ?? 0.45));
+      this.tmp.set(((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255);
+      sky.lerp(this.tmp, tint);
+    }
     // the fog colour: the biome's, darkened by the time of day, pulled towards the sky the further you can see
     const fog = U.uFogColor.value.copy(this.fogBase);
     // the Nether keeps its biome's fog as it is; the End's is that times 0.15
@@ -606,7 +739,7 @@ export class Vanilla {
     U.uSky.value.y *= 1 - rain;
     // the fog itself
     if (state.eyeInLava) {
-      fog.set(0.6, 0.1, 0); U.uFog.value.set(0.25, 1, 0); U.uSky.value.z = 1;
+      fog.set(0.6, 0.1, 0); U.uFog.value.set(0.75, 3, 0); U.uSky.value.z = 1;
       this.waterTime = 0;
     } else if (state.eyeInSnow) {
       // your eyes in powder snow: the game's pale blue, closing in from nothing to 2 blocks
@@ -646,11 +779,13 @@ export class Vanilla {
     /* Blindness and Darkness close the fog in, black, as the game's do: Blindness to 5 blocks (from the
        render distance over its last second), Darkness to 15 as it fades in and out (a second or so each
        way); the sky and the clouds go into the fog with them. */
-    const shut = Math.max(bl, dk);
+    const shut = Math.max(bl, dk), fogShut = shut * (1 - (clarity ? clarity.colorCorrection : 0));
     if (shut > 0) {
-      const f = bl > 0 ? R + (5 - R) * bl : R + (15 - R) * dk, f0 = bl > 0 ? f * 0.25 : f * 0.75;
+      const restore = clarity ? clarity.fogRestoration : 0;
+      const bRange = bl * (1 - restore), dRange = dk * (1 - restore);
+      const f = bRange > 0 ? R + (5 - R) * bRange : R + (15 - R) * dRange, f0 = bRange > 0 ? f * 0.25 : f * 0.75;
       if (f < U.uFog.value.y) U.uFog.value.set(Math.min(f0, U.uFog.value.x), f, 0);
-      fog.multiplyScalar(1 - shut);
+      fog.multiplyScalar(1 - fogShut);
       if (shut > 0.5) U.uSky.value.z = 1;
     }
     // the eye below sea level (y 63): the dark disc under the horizon (SKY_FS)
@@ -662,7 +797,7 @@ export class Vanilla {
     const reach = (opts.cloudDist || rdc * 2) * 16;
     U.uCloudFog.value.set(Math.min(R, reach * 0.5), reach);
     // (in lava or powder snow the fog closes in within a block or two: no clouds through it)
-    this.clouds = (D && !D.clouds) || state.eyeInLava || state.eyeInSnow || shut > 0.5 ? 'off' : opts.clouds || 'fancy';
+    this.clouds = (D && !D.clouds) || state.eyeInLava || state.eyeInSnow || fogShut > 0.5 ? 'off' : opts.clouds || 'fancy';
   }
   /* The game's lightmap as 26.x makes it (its lightmap shader, with the
      numbers from its dimension types and day timeline): the dimension's
@@ -737,7 +872,7 @@ export function makeVanillaMaterials(U, o) {
     side: THREE.DoubleSide, transparent: true, depthWrite: false,
   });
   const chestPasses = {};
-  for (let group = 1; group <= 3; group++) {
+  for (let group = 1; group <= 5; group++) {
     const bit = 1 << (group - 1), throughWall = { CHEST_THROUGH_WALL: 1, CHEST_GROUP: group };
     chestPasses[`chest${group}`] = mk(throughWall, true, {
       stencilWrite: true, stencilRef: bit, stencilFunc: THREE.NotEqualStencilFunc, stencilFuncMask: bit, stencilWriteMask: 0,
@@ -773,6 +908,8 @@ uniform sampler2D uSkin;
 uniform vec3 cameraPosition;
 uniform vec2 uLightLv;
 uniform float uHurt;
+uniform float uChamsArm;
+uniform float uTime;
 in vec3 vWorld; in vec3 vN; in vec2 vUv; flat in int vLayer;
 layout(location = 0) out vec4 outColor;
 void main() {
@@ -781,5 +918,7 @@ void main() {
   vec3 N = normalize(vN);
   if (!gl_FrontFacing) N = -N;
   vec3 c = mix(t.rgb, vec3(1.0, 0.0, 0.0), uHurt * 0.3) * entityShade(N) * lightmapAt(uLightLv.x, uLightLv.y);
-  outColor = vec4(linearFog(c, fogDistance(vWorld - cameraPosition)), 1.0);
+  if (uChamsEnabled > 0.5) c = mix(c, chamsColor(c, vUv, uTime, N, normalize(cameraPosition - vWorld), vWorld), clamp(uChamsEffectAmount, 0.0, 1.0));
+  float alpha = uChamsEnabled > 0.5 && uChamsTransparency > 0.5 ? uChamsOpacity : 1.0;
+  outColor = vec4(linearFog(c, fogDistance(vWorld - cameraPosition)), alpha);
 }`;

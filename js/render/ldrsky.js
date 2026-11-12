@@ -8,12 +8,13 @@
    End a dark speckled box. Exposure and tone mapping happen here too, so
    nothing runs after it.
 --------------------------------------------------------------------------- */
-import { COMMON, TONEMAP, EXPOSURE } from './glsl.js?v=117';
-import { rawMat } from './sky.js?v=117';
-import { END_FLASH_GLSL } from './endflash.js?v=117';
+import { COMMON, TONEMAP, EXPOSURE } from './glsl.js?v=118';
+import { rawMat } from './sky.js?v=118';
+import { END_FLASH_GLSL } from './endflash.js?v=118';
+import { STAR_MOTION_GLSL } from './star-motion.js?v=118';
 const THREE = window.THREE;
 
-const FS = COMMON + TONEMAP + /* glsl */`
+const FS = COMMON + TONEMAP + STAR_MOTION_GLSL + /* glsl */`
 uniform sampler2D uView, uAmbient, uMoon, uEndSky;
 uniform mat4 uInvViewProj;
 uniform vec3 uCamPos, uSunDir, uMoonDir;
@@ -22,8 +23,15 @@ uniform vec3 uWaterTint;
 uniform float uDim;
 uniform vec3 uDimFog;
 uniform vec3 uShut;
+uniform vec3 uChamsColor;
+uniform float uChamsEnabled, uChamsSky, uChamsTint;
 ` + EXPOSURE + END_FLASH_GLSL + /* glsl */`
 in vec2 vUv; out vec4 o;
+vec3 chamsSkyTint(vec3 color) {
+  if (uChamsEnabled < 0.5 || uChamsSky < 0.5) return color;
+  vec3 tint = pow(max(uChamsColor, vec3(0.0)), vec3(2.2));
+  return mix(color, tint * max(dot(color, vec3(0.2126, 0.7152, 0.0722)), 1e-5), clamp(uChamsTint, 0.0, 1.0));
+}
 vec3 skyRadiance(vec3 d) {
   float elev = asin(clamp(d.y, -1.0, 1.0));
   float v = 0.5 + 0.5 * sign(elev) * sqrt(abs(elev) / (PI * 0.5));
@@ -31,6 +39,7 @@ vec3 skyRadiance(vec3 d) {
   return texture(uView, vec2(az / TAU, v)).rgb;
 }
 vec3 stars(vec3 d) {
+  d = starMotionDirection(d);
   vec3 p = d * 220.0, i = floor(p), f = fract(p);
   float h = hash13(i);
   if (h < 0.9935) return vec3(0.0);
@@ -49,7 +58,8 @@ void main() {
       vec2 q = a.x > a.y && a.x > a.z ? rd.zy / a.x : a.y > a.z ? rd.xz / a.y : rd.xy / a.z;
       // straight to the screen in the game's colours (its picture times 40 of 255), as at High and RIP (post.js):
       // through the eye and the tone curve it came out a third as bright as the game's, and bluer
-      o = vec4(min(texture(uEndSky, (q * 0.5 + 0.5) * 16.0).rgb * (40.0 / 255.0) + endFlashSky(rd), 1.0) * (1.0 - uShut.z), 1.0);
+      vec3 endSky = texture(uEndSky, (q * 0.5 + 0.5) * 16.0).rgb * (40.0 / 255.0) + endFlashSky(rd);
+      o = vec4(min(chamsSkyTint(endSky), 1.0) * (1.0 - uShut.z), 1.0);
       return;
     } else col = uDimFog;
   } else if (uEyeInWater > 0.5) {
@@ -75,6 +85,7 @@ void main() {
     col = voidSky(col, rd);
   }
   // (Blindness and Darkness: the sky goes into their black fog)
+  if (uEyeInWater < 0.5) col = chamsSkyTint(col);
   o = vec4(toneLDR(col * exposureNow() * (1.0 - uShut.z)), 1.0);
 }`;
 

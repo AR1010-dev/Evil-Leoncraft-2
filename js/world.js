@@ -7,10 +7,10 @@
    out of range, and takes edits: a changed block remeshes its column, and
    the neighbouring one too when it sits on an edge.
 --------------------------------------------------------------------------- */
-import { CH, H, idx } from './world-const.js?v=117';
-import { BLOCKS, FLUID } from './blocks.js?v=117';
-import { searchSpawn } from './spawn.js?v=117';
-import { settleEdges } from './edgevines.js?v=117';
+import { CH, H, idx } from './world-const.js?v=118';
+import { BLOCKS, FLUID } from './blocks.js?v=118';
+import { searchSpawn } from './spawn.js?v=118';
+import { settleEdges } from './edgevines.js?v=118';
 
 /* RIP Computer's realism (render/realism.js) hears of every block taken away (gone: the world, where, what it was,
    what is there now) and every explosion (blast: where, its power; explosion.js, entities/explosion.js, net/events.js) */
@@ -25,7 +25,7 @@ export const WORLD_FX = { gone: null, blast: null };
 const GEN_N = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 1));
 const POOL = [];
 function newWorker() {
-  const w = new Worker(new URL('./worker.js?v=117', import.meta.url), { type: 'module' });
+  const w = new Worker(new URL('./worker.js?v=118', import.meta.url), { type: 'module' });
   w.onerror = e => console.error('worker', e.message || e);
   return w;
 }
@@ -233,8 +233,10 @@ export class World {
     this.renderDist = opts.renderDist;
     this.chunks = new Map();          // "cx,cz" -> chunk
     this.byNum = new Map();           // the same by a number (chunkXZ), for lookups made thousands of times a tick
+    this.loadStarted = new Map();
     this.onMesh = opts.onMesh;
     this.fastLeaves = !!opts.fastLeaves;
+    this.xray = !!opts.xray;
     // Video Settings the meshes are made with: Biome Blend (0 off to 7, 15 x 15) and Smooth Lighting
     this.blend = opts.blend === undefined ? 2 : opts.blend;
     this.flatLight = !!opts.flatLight;
@@ -339,6 +341,10 @@ export class World {
     }
   }
   key(cx, cz) { return cx + ',' + cz; }
+  startLoad(cx, cz) {
+    const k = this.key(cx, cz);
+    if (!this.loadStarted.has(k)) this.loadStarted.set(k, performance.now());
+  }
   /* The chunk at chunk coordinates, found without making a string: the
      simulation and the mobs look chunks up thousands of times a tick, and each
      "cx,cz" made was garbage. The number keeps 15 bits of each coordinate, so
@@ -394,6 +400,9 @@ export class World {
     }
     if (m.type === 'gen') {
       const k = this.key(m.cx, m.cz);
+      const started = this.loadStarted.get(k);
+      const loadMs = started === undefined ? undefined : performance.now() - started;
+      this.loadStarted.delete(k);
       this.inFlight.delete('g' + k);
       if (!m.cached) this.sentAt.delete('g' + k);
       this.lookingUp.delete(k);
@@ -405,7 +414,7 @@ export class World {
          that came late; or asked again after a worker went quiet): the one here
          stays, with its mesh and whatever lives in it */
       if (this.chunks.has(k)) return;
-      const c = { cx: m.cx, cz: m.cz, blocks: m.blocks, meta: m.meta, biome: m.biome, top: m.top, meshed: false, structs: m.structs || null };
+      const c = { cx: m.cx, cz: m.cz, blocks: m.blocks, meta: m.meta, biome: m.biome, top: m.top, meshed: false, structs: m.structs || null, loadMs, previouslyLoaded: !!m.cached };
       // put back whatever was changed here before
       const ed = this.edits.get(k);
       if (ed) for (const [cell, v] of ed) { c.blocks[cell] = v >> 8; c.meta[cell] = v & 255; if (v >> 8 && (cell >> 8) > c.top) c.top = cell >> 8; }
@@ -436,7 +445,7 @@ export class World {
         c.light = m.mesh.light; c.lightH = m.mesh.lightH;    // (also for mobs: js/entities)
       }
       this.stats.mesh++;
-      this.onMesh(m.cx, m.cz, m.mesh, m.urgent);
+      this.onMesh(m.cx, m.cz, m.mesh, m.urgent, c.loadMs, c.previouslyLoaded);
       // the columns round you keep their mesh (with the region's light), so an edit there remakes only its sections
       if (m.mesh.region && this.near(m.cx, m.cz)) this.meshCache.set(k, { version: m.version, mesh: m.mesh });
       else this.meshCache.delete(k);
@@ -524,6 +533,7 @@ export class World {
       this.thrown.clear();
       // forget what is too far, and line up what is missing, nearest first
       for (const [k, c] of this.chunks) if (!this.wanted(c.cx, c.cz)) { this.fresh = false; this.chunks.delete(k); this.byNum.delete(((c.cx & 0x7fff) << 15) | (c.cz & 0x7fff)); this.meshCache.delete(k); this.rowLog.delete(k); this.cgen = (this.cgen || 0) + 1; this.onDrop(c.cx, c.cz); }
+      for (const k of this.loadStarted.keys()) { const [x, z] = k.split(',').map(Number); if (!this.wanted(x, z)) this.loadStarted.delete(k); }
       this.genList = [];
       for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
         if (!this.inReach(dx, dz)) continue;
@@ -600,12 +610,13 @@ export class World {
       if (this.chunks.has(k) || this.inFlight.has('g' + k)) continue;
       // one made ahead (the title's world: worker.js startPre) goes at once to the worker holding it, which answers at once
       const o = ahead ? this.preAt.get(k) : undefined;
-      if (o !== undefined && this.live[o]) { this.preAt.delete(k); this.inFlight.add('g' + k); this.job(o, 'g' + k, { type: 'gen', cx: x, cz: z }); continue; }
+      if (o !== undefined && this.live[o]) { this.preAt.delete(k); this.startLoad(x, z); this.inFlight.add('g' + k); this.job(o, 'g' + k, { type: 'gen', cx: x, cz: z }); continue; }
       // still being read back from the kept chunks, no worker free, or a loading screen waiting on nearer ones (focus): later
       if (this.lookingUp.has(k) || this.inFlightCount() >= gcap || (this.focus >= 0 && Math.max(Math.abs(x - this.pcx), Math.abs(z - this.pcz)) > this.focus)) { L[j++] = e; continue; }
       // (never deeper on one worker than its share: while the others were still saying they were ready, the first got them all)
       const i = this.idlest();
       if (this.busy[i] >= deep) { L[j++] = e; continue; }
+      this.startLoad(x, z);
       this.inFlight.add('g' + k);
       this.job(i, 'g' + k, { type: 'gen', cx: x, cz: z });
     }
@@ -621,6 +632,7 @@ export class World {
       const k = this.key(e[1], e[2]);
       if (this.chunks.has(k) || this.missing.has(k) || this.lookingUp.has(k) || this.inFlight.has('g' + k) || (this.preAt && this.preAt.has(k))) continue;
       if (!this.lookingUp.size) this.lookOldest = performance.now();
+      this.startLoad(e[1], e[2]);
       this.lookingUp.set(k, performance.now()); list.push([e[1], e[2]]);
     }
     if (!list.length) return;
@@ -762,6 +774,7 @@ export class World {
       if (this.inFlight.has('g' + k) || this.lookingUp.has(k)) continue;
       // while a loading screen waits for the chunks round you (focus), nothing further away takes a worker
       if (this.focus >= 0 && Math.max(Math.abs(x - this.pcx), Math.abs(z - this.pcz)) > this.focus) continue;
+      this.startLoad(x, z);
       if (this.canGen(x, z)) { this.sendGen(x, z); continue; }
       if (!this.features) { this.askTerrain(x, z); continue; }
       for (let dz = -1; dz <= 1 && this.inFlightCount() < cap; dz++) for (let dx = -1; dx <= 1 && this.inFlightCount() < cap; dx++) {
@@ -946,7 +959,7 @@ export class World {
       if (lx >= 0 && lx < CH && lz >= 0 && lz < CH) moving.push(y * 2304 + (16 + lz) * 48 + 16 + lx);
     }
     this.job(i, 'm' + k + '#' + v, { type: 'mesh', cx, cz, chunks, tops, version: v, seed: this.seed, prev: new Int32Array(prev), fast: !!this.fastLeaves, noSky: this.noSky, urgent: !!urgent,
-      blend: this.blend, flat: this.flatLight, moving,
+      blend: this.blend, flat: this.flatLight, xray: this.xray, moving,
       keep: this.near(cx, cz), base, rows: base ? rows : null }, transfer);
   }
 
@@ -1123,11 +1136,12 @@ export class World {
     this.inFlight.delete('m' + this.key(cx, cz));
     this.sendMesh(cx, cz, urgent, edit);
   }
-  /* The meshes made again with new Video Settings (See-Through Leaves, Smooth
-     Lighting, Biome Blend): every column already made goes back in the line,
+  /* The meshes made again with new Video Settings or X-ray: every column
+     already made goes back in the line,
      nearest first, the old mesh staying on screen until its new one is in. */
   setMeshing(o) {
     let changed = false;
+    if (o.xray !== undefined && !!o.xray !== this.xray) { this.xray = !!o.xray; changed = true; }
     if (o.fastLeaves !== undefined && !!o.fastLeaves !== this.fastLeaves) { this.fastLeaves = !!o.fastLeaves; changed = true; }
     if (o.blend !== undefined && o.blend !== this.blend) { this.blend = o.blend; changed = true; }
     if (o.flatLight !== undefined && !!o.flatLight !== this.flatLight) { this.flatLight = !!o.flatLight; changed = true; }

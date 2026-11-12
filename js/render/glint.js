@@ -14,7 +14,7 @@
    One material per renderer; addGlint(mesh) gives a held mesh (the vertex
    format of render/blockmesh.js) a glint child sharing its geometry.
 --------------------------------------------------------------------------- */
-import { GLINT } from './armor.js?v=117';
+import { GLINT } from './armor.js?v=118';
 const THREE = window.THREE;
 
 const HEAD = `precision highp float; precision highp int; precision highp sampler2DArray;\n`;
@@ -72,7 +72,14 @@ export function glintMaterial(R, gui) {
   const uExpo = { value: null };
   const make = o => new THREE.RawShaderMaterial({
     glslVersion: THREE.GLSL3, vertexShader: HEAD + VS, fragmentShader: HEAD + FS,
-    uniforms: { uAlbedo: R.U.uAlbedo, uNoise: R.U.uNoise, uClock: R.U.uClock, uGlint: R.U.uGlint, uChunk: R.U.uChunk, uExpo },
+    uniforms: {
+      uAlbedo: R.U.uAlbedo, uNoise: R.U.uNoise, uClock: R.U.uClock, uGlint: R.U.uGlint,
+      uGlintShape: R.U.uGlintShape, uGlintLayer: R.U.uGlintLayer,
+      uGlintColor: R.U.uGlintColor, uGlintColor2: R.U.uGlintColor2,
+      uGlintFx1: R.U.uGlintFx1, uGlintFx2: R.U.uGlintFx2,
+      uGlintFx3: R.U.uGlintFx3, uGlintFx4: R.U.uGlintFx4,
+      uChunk: R.U.uChunk, uExpo,
+    },
     defines: !gui && !o.vanilla && !o.ldr ? { HDR: 1 } : {},
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthFunc: THREE.LessEqualDepth,
     polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1, side: THREE.DoubleSide,

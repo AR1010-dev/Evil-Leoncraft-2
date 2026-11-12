@@ -23,7 +23,7 @@
    The player's armour is drawn by render/avatar.js with these boxes, the
    mobs' by entities/armorlayer.js through the mob atlas.
 --------------------------------------------------------------------------- */
-import { armorOf, ITEMS } from '../items.js?v=117';
+import { armorOf, ITEMS } from '../items.js?v=118';
 const THREE = window.THREE;
 
 /* the materials, in sheet order, with the file name each one's pictures go by */
@@ -141,7 +141,7 @@ export function armorSheet() {
   ARMOR_MATS.forEach((m, i) => {
     for (const layer of [1, 2]) {
       if (m === 'turtle' && layer === 2) continue;
-      jobs.push(load(base + (FILE[m] || m) + '_layer_' + layer + '.png?v=117').then(im => {
+      jobs.push(load(base + (FILE[m] || m) + '_layer_' + layer + '.png?v=118').then(im => {
         if (!im) return;
         const y = i * 64 + (layer - 1) * 32;
         g.clearRect(0, y, 64, 32);
@@ -153,7 +153,7 @@ export function armorSheet() {
     }
   });
   for (const m in OVERLAYS) for (const layer of OVERLAYS[m]) {
-    jobs.push(load(base + m + '_layer_' + layer + '_overlay.png?v=117').then(im => {
+    jobs.push(load(base + m + '_layer_' + layer + '_overlay.png?v=118').then(im => {
       if (!im) return;
       g.imageSmoothingEnabled = false;
       g.drawImage(im, 0, 0, im.naturalWidth, im.naturalHeight, 0, OVERLAY_ROW * 64 + (layer - 1) * 32, 64, 32);
@@ -381,15 +381,44 @@ export function poseWings(g, xRot, yRot, zRot, y) {
    noise reads as long soft streaks; two layers cross at different angles
    and drift different ways. */
 export const GLINT = /* glsl */`
-uniform vec2 uGlint;    // Glint Speed and Glint Strength (Accessibility Settings): 0.5 and 0.75 are as it always was
+uniform vec2 uGlint;
+uniform vec4 uGlintShape; // scale, thickness, cosine and sine of the angle
+uniform float uGlintLayer;
+uniform vec3 uGlintColor, uGlintColor2;
+uniform vec4 uGlintFx1, uGlintFx2, uGlintFx3, uGlintFx4;
+vec3 glintRainbow(float t) {
+  return abs(fract(t + vec3(0.0, 0.666667, 0.333333)) * 6.0 - 3.0) - 1.0;
+}
 vec3 glintAt(vec2 p, float t) {
+  if (uGlintFx1.x < 0.5) return vec3(0.0);
+  float pulse = uGlintFx1.y > 0.5 ? 1.0 - uGlintFx1.w * 0.5 + uGlintFx1.w * 0.5 * sin(t * uGlintFx1.z * 6.2831853) : 1.0;
   t *= uGlint.x * 2.0;
-  vec2 a = vec2(p.x * 0.985 + p.y * 0.174, -p.x * 0.174 + p.y * 0.985);
-  vec2 b = vec2(p.x * 0.643 - p.y * 0.766, p.x * 0.766 + p.y * 0.643);
-  float s = texture(uNoise, vec2(a.x * 0.004 + 0.13, a.y * 0.022 - t * 0.05)).r;
-  float u = texture(uNoise, vec2(b.x * 0.004 + 0.61, b.y * 0.018 + t * 0.037)).a;
-  float g = smoothstep(0.5, 0.95, s) * 0.9 + smoothstep(0.55, 0.95, u) * 0.7;
-  return vec3(0.5, 0.25, 0.95) * g * (uGlint.y / 0.75);
+  p *= uGlintShape.x;
+  float distortion = (texture(uNoise, p * 0.003 + vec2(t * 0.01, 0.0)).r - 0.5) * uGlintFx3.y;
+  p += vec2(distortion * 32.0, -distortion * 18.0);
+  float c0 = uGlintShape.z, s0 = uGlintShape.w;
+  float c1 = c0 * 0.766044 + s0 * 0.642788;
+  float s1 = s0 * 0.766044 - c0 * 0.642788;
+  vec2 a = vec2(p.x * c0 + p.y * s0, -p.x * s0 + p.y * c0);
+  vec2 b = vec2(p.x * c1 + p.y * s1, -p.x * s1 + p.y * c1);
+  float thickness = clamp(uGlintShape.y, 0.0, 1.0);
+  float across = mix(1.6, 0.35, thickness);
+  float low = mix(0.5, 0.28, thickness), high = mix(0.95, 0.78, thickness);
+  float soft = mix(0.02, 0.2, clamp(uGlintFx2.w, 0.0, 1.0));
+  float s = texture(uNoise, vec2(a.x * 0.004 + 0.13, a.y * 0.022 * across - t * 0.05)).r;
+  float u = texture(uNoise, vec2(b.x * 0.004 + 0.61, b.y * 0.018 * across + t * 0.037 + uGlintFx3.x)).a;
+  float g0 = smoothstep(low, high, s) * 0.9;
+  float g1 = smoothstep(low + soft, high, u) * 0.7 * uGlintLayer * uGlintFx4.x;
+  float sparkle = smoothstep(0.82, 0.98, texture(uNoise, p * 0.01 * uGlintFx2.y + vec2(t * 0.02)).r) * uGlintFx2.x;
+  vec3 c0 = uGlintColor, c1 = uGlintColor2;
+  if (uGlintFx3.z > 0.5) {
+    float hue = fract(t * uGlintFx3.w * 0.1);
+    c0 = clamp(glintRainbow(hue), 0.0, 1.0);
+    c1 = clamp(glintRainbow(hue + 0.35), 0.0, 1.0);
+  }
+  vec3 g = (c0 * g0 + c1 * g1 + (c0 + c1) * 0.5 * sparkle) * (uGlint.y / 0.75);
+  g = max((g - 0.5) * uGlintFx2.z + 0.5, vec3(0.0));
+  return min(g, vec3(max(0.0, uGlintFx4.y))) * pulse * uGlintFx4.z;
 }
 #ifdef GLINT_TONE
 /* High and RIP: the shimmer put on the screen's own colour, as the game adds it (needs glsl.js TONEMAP).

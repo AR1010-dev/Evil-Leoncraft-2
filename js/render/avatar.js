@@ -44,17 +44,18 @@
      notice shall be included in all copies or substantial portions of the
      Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
 --------------------------------------------------------------------------- */
-import { VANILLA, AVATAR_FS } from './vanilla.js?v=117';
-import { COMMON, SHADOW, TONEMAP, LDR, LIGHTS } from './glsl.js?v=117';
-import { lightDefines } from './materials.js?v=117';
-import { SOLID, OPAQUE, OPACITY, EMIT, FLUID } from '../blocks.js?v=117';
-import { H, idx } from '../world-const.js?v=117';
-import { lightNear } from '../lightlevel.js?v=117';
-import { armorSheet, avatarArmorGeometry, poseWings, pieceLook, elytraLook, GLINT, SHEET_W, SHEET_H } from './armor.js?v=117';
-import { blockGeometry, isFlatItem } from './blockmesh.js?v=117';
-import { heldKind, heldGeometry, placeInHand, placeOnHead, setLight } from './held.js?v=117';
-import { setGlint } from './glint.js?v=117';
-import { hatParts, HAT_TEX } from './hats.js?v=117';
+import { VANILLA, AVATAR_FS } from './vanilla.js?v=118';
+import { COMMON, SHADOW, TONEMAP, LDR, LIGHTS } from './glsl.js?v=118';
+import { lightDefines } from './materials.js?v=118';
+import { CHAMS_CUSTOM_STYLES } from './chams-styles.js?v=118';
+import { SOLID, OPAQUE, OPACITY, EMIT, FLUID } from '../blocks.js?v=118';
+import { H, idx } from '../world-const.js?v=118';
+import { lightNear } from '../lightlevel.js?v=118';
+import { armorSheet, avatarArmorGeometry, poseWings, pieceLook, elytraLook, GLINT, SHEET_W, SHEET_H } from './armor.js?v=118';
+import { blockGeometry, isFlatItem } from './blockmesh.js?v=118';
+import { heldKind, heldGeometry, placeInHand, placeOnHead, setLight } from './held.js?v=118';
+import { setGlint } from './glint.js?v=118';
+import { hatParts, HAT_TEX } from './hats.js?v=118';
 const THREE = window.THREE;
 
 const PI = Math.PI, DEG = PI / 180;
@@ -65,7 +66,7 @@ const mix = (x, y, t) => x + (y - x) * t;
 /* the outer layers, as bits of the show mask (bit 0 is the base layer, always on) */
 export const SKIN_PARTS = ['hat', 'jacket', 'leftSleeve', 'rightSleeve', 'leftPants', 'rightPants'];
 const BIT = { hat: 1, jacket: 2, leftSleeve: 3, rightSleeve: 4, leftPants: 5, rightPants: 6 };
-const DEFAULT_SKIN = new URL('../../textures/skin/default.png?v=117', import.meta.url).href;
+const DEFAULT_SKIN = new URL('../../textures/skin/default.png?v=118', import.meta.url).href;
 // the default skin: ours, or the one a resource pack the player opened brings (see ui/pack.js)
 let defaultSkin = DEFAULT_SKIN;
 
@@ -200,6 +201,67 @@ function buildGeometry(slim, onlyParts, grow) {
   return g;
 }
 
+function armEdgesGeometry(geometry) {
+  const positions = geometry.getAttribute('position'), parts = geometry.getAttribute('aPart'), indices = geometry.index.array;
+  const edges = new Map();
+  for (let i = 0; i < indices.length; i += 3) {
+    const triangle = [indices[i], indices[i + 1], indices[i + 2]];
+    const p0 = triangle[0], p1 = triangle[1], p2 = triangle[2];
+    const ax = positions.getX(p0), ay = positions.getY(p0), az = positions.getZ(p0);
+    const bx = positions.getX(p1), by = positions.getY(p1), bz = positions.getZ(p1);
+    const cx = positions.getX(p2), cy = positions.getY(p2), cz = positions.getZ(p2);
+    const ux = bx - ax, uy = by - ay, uz = bz - az, vx = cx - ax, vy = cy - ay, vz = cz - az;
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const nl = Math.hypot(nx, ny, nz) || 1, normal = [nx / nl, ny / nl, nz / nl];
+    for (let j = 0; j < 3; j++) {
+      const a = triangle[j], b = triangle[(j + 1) % 3], part = parts.getX(a);
+      if (part !== parts.getX(b)) continue;
+      const pa = [positions.getX(a), positions.getY(a), positions.getZ(a)];
+      const pb = [positions.getX(b), positions.getY(b), positions.getZ(b)];
+      const ka = `${part}:${pa.join(',')}`, kb = `${part}:${pb.join(',')}`;
+      const key = ka < kb ? ka + '|' + kb : kb + '|' + ka;
+      const edge = edges.get(key);
+      if (edge) {
+        edge.count++;
+        if (normal[0] * edge.normal[0] + normal[1] * edge.normal[1] + normal[2] * edge.normal[2] < 0.999) edge.sharp = true;
+      } else edges.set(key, { part, a: pa, b: pb, normal, count: 1, sharp: false });
+    }
+  }
+  const p = [], a = [];
+  for (const edge of edges.values()) {
+    if (edge.count > 1 && !edge.sharp) continue;
+    p.push(...edge.a, ...edge.b);
+    a.push(edge.part, edge.part);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+  g.setAttribute('aPart', new THREE.Float32BufferAttribute(a, 1));
+  return g;
+}
+
+function armOutlineGeometry(geometry) {
+  const edges = armEdgesGeometry(geometry), positions = edges.getAttribute('position'), parts = edges.getAttribute('aPart');
+  const starts = [], ends = [], edgeParts = [], corners = [], indices = [];
+  for (let i = 0; i < positions.count; i += 2) {
+    const vertex = starts.length / 3;
+    const start = [positions.getX(i), positions.getY(i), positions.getZ(i)];
+    const end = [positions.getX(i + 1), positions.getY(i + 1), positions.getZ(i + 1)];
+    for (let j = 0; j < 4; j++) {
+      starts.push(...start); ends.push(...end); edgeParts.push(parts.getX(i));
+    }
+    corners.push(0, -1, 0, 1, 1, -1, 1, 1);
+    indices.push(vertex, vertex + 1, vertex + 2, vertex + 2, vertex + 1, vertex + 3);
+  }
+  edges.dispose();
+  const outline = new THREE.BufferGeometry();
+  outline.setAttribute('aStart', new THREE.Float32BufferAttribute(starts, 3));
+  outline.setAttribute('aEnd', new THREE.Float32BufferAttribute(ends, 3));
+  outline.setAttribute('aPart', new THREE.Float32BufferAttribute(edgeParts, 1));
+  outline.setAttribute('aCorner', new THREE.Float32BufferAttribute(corners, 2));
+  outline.setIndex(indices);
+  return outline;
+}
+
 /* Riptide's swirl: a streaky white-blue picture of our own on two open
    eight-sided sleeves (render: Avatar.placeSwirl) */
 function makeSwirl(R) {
@@ -308,7 +370,15 @@ uniform float uFrame;
 uniform vec2 uLightLv;   // sky and block light where the player stands, 0..1
 uniform float uTime;
 uniform float uHurt;     // 1 while hurt: the game's red overlay
+uniform float uChamsEnabled, uChamsArm, uChamsTransparency, uChamsOpacity;
+uniform float uChamsStyle;
+uniform vec3 uChamsColor;
+uniform float uChamsTint;
+uniform vec4 uChamsFx1, uChamsFx2, uChamsFx3;
+uniform vec4 uChamsFx4, uChamsFx5, uChamsFx6;
+uniform vec3 uChamsGradientColor;
 uniform sampler2D uNoise;
+` + CHAMS_CUSTOM_STYLES + /* glsl */`
 uniform float uDim;      // 0 the Overworld, 1 the Nether, 2 the End (js/dims.js)
 uniform vec3 uDimAmb;    // the light everything gets there instead of the sky's (js/dim/look.js)
 #define HAS_DIM
@@ -335,6 +405,64 @@ vec3 ambientAt(vec3 n) {
   vec3 side = texelFetch(uAmbient, ivec2(1, 0), 0).rgb;
   vec3 down = texelFetch(uAmbient, ivec2(2, 0), 0).rgb;
   return n.y > 0.0 ? mix(side, up, n.y) : mix(side, down, -n.y);
+}
+vec3 chamsRainbow(float hue, float saturation) {
+  vec3 p = abs(fract(hue + vec3(0.0, 0.666667, 0.333333)) * 6.0 - 3.0);
+  return mix(vec3(1.0), clamp(p - 1.0, 0.0, 1.0), saturation);
+}
+vec3 chamsColor(vec3 c, vec2 uv, float t, vec3 N, vec3 V, vec3 worldPos) {
+  vec2 patternUv = chamsWorldUv(worldPos);
+  vec3 color = c;
+  if (uChamsStyle < 0.5) {
+    color = mix(c, uChamsColor, uChamsTint);
+    if (uChamsFx4.x > 0.5) {
+      vec3 rainbow = chamsRainbow(t * uChamsFx4.y + patternUv.x * 0.18, uChamsFx4.z);
+      color = mix(color, rainbow, clamp(uChamsFx4.w, 0.0, 1.0));
+    }
+    color = mix(color, uChamsGradientColor, clamp(0.5 + patternUv.y * 0.08, 0.0, 1.0) * clamp(uChamsFx5.z, 0.0, 1.0));
+    color += vec3(uChamsFx1.x);
+    float grey = dot(color, vec3(0.299, 0.587, 0.114));
+    color = mix(vec3(grey), color, uChamsFx1.y);
+    color = (color - 0.5) * uChamsFx1.z + 0.5;
+    float cs = cos(uChamsFx1.w), sn = sin(uChamsFx1.w);
+    vec3 axis = normalize(vec3(1.0));
+    color = color * cs + cross(axis, color) * sn + axis * dot(axis, color) * (1.0 - cs);
+    float pulse = uChamsFx2.x > 0.5 ? 1.0 - uChamsFx2.z * 0.5 + uChamsFx2.z * 0.5 * sin(t * uChamsFx2.y * 6.2831853) : 1.0;
+    color = max(color, vec3(0.0)) * pulse;
+  } else if (uChamsStyle < 1.5) {
+    float shimmer = pow(max(0.0, sin((patternUv.x + patternUv.y * 0.5 - t * uChamsFx2.w) * uChamsFx3.x)), 4.0);
+    color += uChamsColor * shimmer * uChamsFx3.y;
+  } else if (uChamsStyle < 2.5) {
+    float edge = pow(1.0 - max(dot(normalize(N), normalize(V)), 0.0), 2.2);
+    float hue = t * max(uChamsFx4.y, 0.1) + patternUv.x * 0.72 + patternUv.y * 0.38 + edge * 0.22;
+    vec3 spectrum = chamsRainbow(hue, 0.9);
+    float sweep = pow(max(0.0, sin((patternUv.x * 7.0 + patternUv.y * 4.0 - t * 0.8) * 6.2831853)), 8.0);
+    float scan = 0.96 + 0.04 * sin((patternUv.y * 42.0 + patternUv.x * 6.0 - t * 0.7) * 6.2831853);
+    color = mix(c, spectrum, 0.48 + edge * 0.34);
+    color = color * scan + uChamsColor * (edge * 0.28 + sweep * 0.16);
+  } else if (uChamsStyle < 3.5) {
+    float pulse = 0.5 + 0.5 * sin(t * uChamsFx2.y * 6.2831853);
+    color = mix(c, uChamsColor, 0.2 + pulse * 0.55);
+  } else {
+    color = chamsCustomStyle(c, patternUv, t, N, V, uChamsStyle);
+  }
+  if (uChamsFx6.x > 0.001) {
+    float sparkleScale = max(uChamsFx6.y * 0.2, 1.0);
+    vec2 sparkleCell = patternUv * sparkleScale;
+    vec2 sparkleId = floor(sparkleCell);
+    float sparkleSeed = fract(sin(dot(sparkleId, vec2(127.1, 311.7))) * 43758.5453);
+    float sparkleSeedY = fract(sparkleSeed * 31.7);
+    vec2 sparklePos = fract(sparkleCell) - vec2(sparkleSeed, sparkleSeedY);
+    float sparkleX = 1.0 - smoothstep(0.01, 0.045, abs(sparklePos.x));
+    float sparkleY = 1.0 - smoothstep(0.06, 0.15, abs(sparklePos.y));
+    float sparkleStar = max(sparkleX * sparkleY,
+                            (1.0 - smoothstep(0.01, 0.045, abs(sparklePos.y)))
+                            * (1.0 - smoothstep(0.06, 0.15, abs(sparklePos.x))));
+    float twinkle = 0.35 + 0.65 * pow(0.5 + 0.5 * sin(t * uChamsFx6.z * 6.2831853 + sparkleSeed * 6.2831853), 3.0);
+    color += uChamsColor * sparkleStar * twinkle * uChamsFx6.x;
+  }
+  float rim = pow(1.0 - max(dot(normalize(N), normalize(V)), 0.0), max(uChamsFx5.y, 0.25));
+  return color + uChamsColor * rim * uChamsFx5.x;
 }
 void main() {
   vec4 t = texture(uSkin, vUv);
@@ -387,6 +515,7 @@ void main() {
   vec3 blockL = block > 0.0 ? blockLight(block, uDim > 0.5 ? 0.0 : sky * sky * sat(lum(sunC) * 0.3)) : vec3(0.0);
   vec3 light = (diffuse * PI + amb + blockL + lightFloor() + fullbrightFill(diffuse * PI + amb + blockL)) / PI;
   vec3 col = albedo * light;
+  if (uChamsEnabled > 0.5) col = mix(col, chamsColor(col, vUv, uTime, N, normalize(cameraPosition - vWorld), vWorld), clamp(uChamsEffectAmount, 0.0, 1.0));
 #ifdef ARMOR
   /* the glint added unlit on the screen's own colour, as the game draws it (Fast: AVATAR_FS below), so
      it is as bright in a cave as in the sun. It went by the light the piece was in (a dazzle in the sun
@@ -402,7 +531,8 @@ void main() {
   col = min(col + g, vec3(1.0));
 #endif
 #endif
-  outColor = vec4(col, 1.0);
+  float alpha = uChamsEnabled > 0.5 && uChamsTransparency > 0.5 ? uChamsOpacity : 1.0;
+  outColor = vec4(col, alpha);
 }`;
 /* The armour in Fast graphics: as the skin there (render/vanilla.js
    AVATAR_FS), cut out, dyed, and the glint added on top unlit, as the
@@ -422,7 +552,8 @@ void main() {
   if (!gl_FrontFacing) N = -N;
   vec3 c = t.rgb * entityShade(N) * lightmapAt(uLightLv.x, uLightLv.y);
   if (vG.z > 0.5) c += glintAt(vG.xy, uClock);
-  outColor = vec4(linearFog(c, fogDistance(vWorld - cameraPosition)), 1.0);
+  float alpha = uChamsEnabled > 0.5 && uChamsTransparency > 0.5 ? uChamsOpacity : 1.0;
+  outColor = vec4(linearFog(c, fogDistance(vWorld - cameraPosition)), alpha);
 }`;
 // the model's vertex shader (with ARMOR, the armour's), for the figure in the inventory too (render/figure.js)
 export { HEAD as AVATAR_HEAD, VS as AVATAR_VS };
@@ -536,7 +667,7 @@ export class Avatar {
     }, extra || {})));
     this.mat = mk(VS, FS, uni);
     // the first-person arm: drawn by the hand's own camera, in front of the world (render/held.js)
-    this.armMat = mk(VS, FS, Object.assign({}, uni, { uParts: { value: this.armParts }, uHurt: { value: 0 } }), { side: THREE.FrontSide });
+    this.armMat = mk(VS, FS, Object.assign({}, uni, { uParts: { value: this.armParts }, uHurt: { value: 0 }, uChamsArm: { value: 1 } }), { side: THREE.FrontSide });
     this.shadowMat = new THREE.RawShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader: HEAD + SHADOW_VS, fragmentShader: HEAD + SHADOW_FS, uniforms: uni, side: THREE.DoubleSide,
     });
@@ -544,6 +675,39 @@ export class Avatar {
     this.shadowMesh = new THREE.Mesh(this.mesh.geometry, this.shadowMat);
     // both arms: the right always, the left when it holds something
     this.arm = new THREE.Mesh(buildGeometry(this.slim, [2, 3]), this.armMat);
+    this.armOutlineMat = new THREE.RawShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      vertexShader: `precision highp float; precision highp int;
+        uniform mat4 viewMatrix, projectionMatrix, uParts[6];
+        uniform vec2 uViewport;
+        uniform float uWidth;
+        in vec3 aStart, aEnd;
+        in float aPart;
+        in vec2 aCorner;
+        void main() {
+          mat4 part = uParts[int(aPart + 0.5)];
+          vec4 a = projectionMatrix * viewMatrix * part * vec4(aStart, 1.0);
+          vec4 b = projectionMatrix * viewMatrix * part * vec4(aEnd, 1.0);
+          if (a.w <= 0.0 && b.w <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+          vec2 direction = (b.xy / b.w - a.xy / a.w) * uViewport;
+          float lengthPx = length(direction);
+          vec2 normal = lengthPx > 0.0 ? vec2(-direction.y, direction.x) / lengthPx : vec2(0.0, 1.0);
+          vec4 clip = mix(a, b, aCorner.x);
+          clip.xy += normal * (uWidth / uViewport) * aCorner.y * clip.w;
+          gl_Position = clip;
+        }`,
+      fragmentShader: `precision highp float;
+        uniform vec3 uOutlineColor;
+        uniform float uOutlineOpacity;
+        out vec4 outColor;
+        void main() { outColor = vec4(uOutlineColor, uOutlineOpacity); }`,
+      uniforms: { uParts: { value: this.armParts }, uViewport: U.uChamsHandOutlineViewport, uWidth: U.uChamsHandOutlineWidth,
+        uOutlineColor: U.uChamsHandOutlineColor, uOutlineOpacity: U.uChamsHandOutlineOpacity },
+      transparent: true, depthTest: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide,
+    });
+    this.armOutline = new THREE.Mesh(armOutlineGeometry(this.arm.geometry), this.armOutlineMat);
+    this.armOutline.frustumCulled = false; this.armOutline.matrixAutoUpdate = false;
+    this.armOutline.visible = false; this.armOutline.renderOrder = 1;
     // the armour: one more mesh on the same parts, its pieces switched on as they are worn
     const sheet = armorSheet();
     const atex = this.armorTex = new THREE.Texture(sheet.canvas);
@@ -606,12 +770,12 @@ export class Avatar {
       this.uGlow.value.set(lit ? 3 : 1, lit ? 3 : 1, lit ? 3 : 1, lit ? 0.7 : 1);
     };
     this.glowing = false; this.invisible = false;
-    for (const m of [this.mesh, this.shadowMesh, this.arm, this.armor, this.armorShadow, this.glowRim, this.glowBehind, this.capeMesh, this.capeShadow, this.hatMesh, this.hatShadow]) { m.frustumCulled = false; m.matrixAutoUpdate = false; m.visible = false; }
+    for (const m of [this.mesh, this.shadowMesh, this.arm, this.armOutline, this.armor, this.armorShadow, this.glowRim, this.glowBehind, this.capeMesh, this.capeShadow, this.hatMesh, this.hatShadow]) { m.frustumCulled = false; m.matrixAutoUpdate = false; m.visible = false; }
     renderer.scene.add(this.mesh);
     renderer.scene.add(this.armor);
     renderer.scene.add(this.glowRim); renderer.scene.add(this.glowBehind); renderer.scene.add(this.capeMesh); renderer.scene.add(this.hatMesh);
     // (only drawn while there are shadows: render/shadows.js; another player's model has no first-person arm)
-    if (!remote) { renderer.shadowScene.add(this.shadowMesh); renderer.shadowScene.add(this.armorShadow); renderer.shadowScene.add(this.capeShadow); renderer.shadowScene.add(this.hatShadow); renderer.handScene.add(this.arm); }
+    if (!remote) { renderer.shadowScene.add(this.shadowMesh); renderer.shadowScene.add(this.armorShadow); renderer.shadowScene.add(this.capeShadow); renderer.shadowScene.add(this.hatShadow); renderer.handScene.add(this.armOutline); renderer.handScene.add(this.arm); }
     // what is in each hand (0 main, 1 off), in the model's hand in third person
     this.held = [null, null];
     this.heldGlint = [false, false];
@@ -676,6 +840,9 @@ export class Avatar {
       const old = this.mesh.geometry, oldArm = this.arm.geometry;
       this.mesh.geometry = this.shadowMesh.geometry = buildGeometry(s);
       this.arm.geometry = buildGeometry(s, [2, 3]);
+      const oldArmOutline = this.armOutline.geometry;
+      this.armOutline.geometry = armOutlineGeometry(this.arm.geometry);
+      oldArmOutline.dispose();
       const oldGlow = [this.glowRim.geometry, this.glowBehind.geometry];
       this.glowRim.geometry = buildGeometry(s, null, GLOW_GROW); this.glowBehind.geometry = buildGeometry(s, null, GLOW_MASK);
       old.dispose(); oldArm.dispose(); for (const g of oldGlow) g.dispose();
@@ -867,9 +1034,23 @@ export class Avatar {
     this.swirl = null;
   }
 
+  syncChamsTransparency() {
+    const transparent = !!(this.R.opts.chamsEnabled && this.R.opts.chamsTransparency);
+    for (const mat of [this.mat, this.armMat, this.armorMat, this.capeMat, this.hatMat]) {
+      if (!mat) continue;
+      const depthWrite = !transparent;
+      if (mat.transparent !== transparent || mat.depthWrite !== depthWrite) {
+        mat.transparent = transparent;
+        mat.depthWrite = depthWrite;
+        mat.needsUpdate = true;
+      }
+    }
+  }
+
   /* ---- every frame: ticks since the last one, light, pose, camera ---- */
   update(state, dt, cam) {
     const P = state.player, R = this.R;
+    if (this.remote) this.syncChamsTransparency();
     this.uHurt.value = state.hurt ? 1 : 0;
     // what the use button is doing with your hands, for the poses (hands.js handBob)
     this.useNow = state.bob && state.bob.use || null;
@@ -949,7 +1130,8 @@ export class Avatar {
     const bodyYaw = this.oBody + wrap(this.body - this.oBody) * a;
     this.poseFor(P, a, P.pitch, wrap(P.yaw - bodyYaw));
     const root = this.root, t = this.t;
-    root.makeRotationY(bodyYaw + PI);
+    const dance = P.jukeboxDance;
+    root.makeRotationY(bodyYaw + PI + (dance ? dance.rotation : 0));
     root.setPosition(feet.x, feet.y - (this.cur.sneak ? 0.125 : 0), feet.z);
     this.layDown(root, P, a, P.pitch);
     if (this.glide > 0) {
@@ -962,6 +1144,7 @@ export class Avatar {
     }
     this.placeSwirl(root, a);
     root.scale(this.vs);
+    if (dance) root.scale(this.sizeV.set(1, dance.scaleY, 1));
     // (a smaller or bigger player: Leon Network's Chameleon plays at half size)
     if (this.size && this.size !== 1) root.scale(this.sizeV.set(this.size, this.size, this.size));
     this.matrices(root, this.parts);

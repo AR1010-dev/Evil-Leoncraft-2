@@ -28,10 +28,10 @@
    picture is asked for when the mouse moves, and 20 times a second for the
    arms' sway, only while the screen showing it is open.
 --------------------------------------------------------------------------- */
-import { AVATAR_HEAD, AVATAR_VS, ARMOR_OVERLAY } from './avatar.js?v=117';
-import { GLINT, SHEET_W, SHEET_H } from './armor.js?v=117';
-import { setGlint } from './glint.js?v=117';
-import { MobFigure } from './mobfigure.js?v=117';
+import { AVATAR_HEAD, AVATAR_VS, ARMOR_OVERLAY } from './avatar.js?v=118';
+import { GLINT, SHEET_W, SHEET_H } from './armor.js?v=118';
+import { setGlint } from './glint.js?v=118';
+import { MobFigure } from './mobfigure.js?v=118';
 const THREE = window.THREE;
 const PI = Math.PI, DEG = PI / 180;
 const MODEL_SCALE = 0.9375 / 16;
@@ -130,6 +130,10 @@ export class Figure {
     this.armor = new THREE.Mesh(A.armor.geometry, mk(SKIN_FS, {
       uSkin: { value: A.armorTex }, uParts, uShow: A.uShow, uPiece: this.uPiece, uTint: A.uTint, uTrim: A.uTrim,
       uSheet: { value: new THREE.Vector2(SHEET_W, SHEET_H) }, uNoise: R.U.uNoise, uClock: R.U.uClock, uGlint: R.U.uGlint,
+      uGlintShape: R.U.uGlintShape, uGlintLayer: R.U.uGlintLayer,
+      uGlintColor: R.U.uGlintColor, uGlintColor2: R.U.uGlintColor2,
+      uGlintFx1: R.U.uGlintFx1, uGlintFx2: R.U.uGlintFx2,
+      uGlintFx3: R.U.uGlintFx3, uGlintFx4: R.U.uGlintFx4,
     }, { ARMOR: 1 }));
     this.itemMat = new THREE.RawShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader: ITEM_HEAD + ITEM_VS, fragmentShader: ITEM_HEAD + ITEM_FS,

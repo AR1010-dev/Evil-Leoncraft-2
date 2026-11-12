@@ -9,6 +9,7 @@
      cutout       alpha tested: leaves, plants, glass, torches, cactus
      translucent  blended: ice, stained glass
      fluid        water and lava, with their own surface heights and flow
+     xray         ore faces, only when X-ray is enabled
 
    Lighting is Minecraft's: sky light pours straight down at 15 and spreads
    sideways one less a block; block light spreads out from torches, lava and
@@ -28,12 +29,12 @@
    flags: bits 0-1 ambient occlusion, 2-3 texture rotation, 4 overlay
    (grass block sides), 5 plant, 6 tinted.
 --------------------------------------------------------------------------- */
-import { BLOCKS, B, OPAQUE, OPACITY, EMIT, FLUID, MAX_ID } from './blocks.js?v=117';
-import { CH, H, Y0, LEVEL, FALLING } from './world-const.js?v=117';
-import { BIOMES, SPRUCE_LEAF, BIRCH_LEAF } from './biomes.js?v=117';
-import { hash3 } from './noise.js?v=117';
-import { boxesOf, MODEL_SHAPES, cubeLook, hasCubeLook, movingDef, blockOffset, bambooVariant } from './models.js?v=117';
-import { STATEFUL, SLIGHT, stateDef, lightOf } from './sim/states.js?v=117';
+import { BLOCKS, B, OPAQUE, OPACITY, EMIT, FLUID, MAX_ID } from './blocks.js?v=118';
+import { CH, H, Y0, LEVEL, FALLING } from './world-const.js?v=118';
+import { BIOMES, SPRUCE_LEAF, BIRCH_LEAF } from './biomes.js?v=118';
+import { hash3 } from './noise.js?v=118';
+import { boxesOf, MODEL_SHAPES, cubeLook, hasCubeLook, movingDef, blockOffset, bambooVariant } from './models.js?v=118';
+import { STATEFUL, SLIGHT, stateDef, lightOf } from './sim/states.js?v=118';
 
 const W = 48, A = W * W;          // the region: three chunks a side
 let colours = null;               // biome colours, set once at start
@@ -43,10 +44,11 @@ const THROUGH_WALL_TINT = new Uint32Array(MAX_ID);
 const THROUGH_WALL_GROUP = new Uint8Array(MAX_ID);
 for (const d of BLOCKS) if (d && (d.shape === 'chest' || d.shape === 'hopper' || d.name === 'barrel' ||
   d.name === 'dispenser' || d.name === 'dropper' || d.name === 'shulker_box' || d.name.endsWith('_shulker_box') ||
-  d.name === 'brewing_stand' || d.name === 'furnace' || d.name === 'blast_furnace' || d.name === 'smoker')) {
+  d.name === 'brewing_stand' || d.name === 'furnace' || d.name === 'blast_furnace' || d.name === 'smoker' ||
+  d.shape === 'sign' || d.shape === 'wall_sign' || d.banner)) {
   THROUGH_WALL[d.id] = 1;
-  THROUGH_WALL_GROUP[d.id] = d.shape === 'chest' ? 1 : /(?:^|_)shulker_box$/.test(d.name) ? 2 : 3;
-  THROUGH_WALL_TINT[d.id] = d.name === 'trapped_chest' ? 0x00ff00 : d.name === 'ender_chest' ? 0xa020f0 : /(?:^|_)shulker_box$/.test(d.name) ? 0x2080ff
+  THROUGH_WALL_GROUP[d.id] = d.banner ? 5 : d.shape === 'sign' || d.shape === 'wall_sign' ? 4 : d.shape === 'chest' ? 1 : /(?:^|_)shulker_box$/.test(d.name) ? 2 : 3;
+  THROUGH_WALL_TINT[d.id] = d.banner ? 0xffff00 : d.shape === 'sign' || d.shape === 'wall_sign' ? 0x8b4513 : d.name === 'trapped_chest' ? 0x00ff00 : d.name === 'ender_chest' ? 0xa020f0 : /(?:^|_)shulker_box$/.test(d.name) ? 0x2080ff
     : d.name === 'brewing_stand' || /^(?:furnace|blast_furnace|smoker)$/.test(d.name) ? 0xd3d3d3 : 0xff8000;
 }
 
@@ -85,7 +87,9 @@ class Buf {
     return { count: this.n, attrs: this.arrs.map(a => a.slice(0, this.n * 4)), marks: this.marks, vmarks: this.vmarks };
   }
 }
-const KINDS = ['opaque', 'cutout', 'translucent', 'fluid', 'plants', 'leafIn', 'chests'];
+const KINDS = ['opaque', 'cutout', 'translucent', 'fluid', 'plants', 'leafIn', 'chests', 'xray'];
+const XRAY_ORE = new Uint8Array(MAX_ID);
+for (const d of BLOCKS) if (d && (/_ore$/.test(d.name) || d.name === 'ancient_debris')) XRAY_ORE[d.id] = 1;
 const NO_MARKS = new Int32Array(25);
 // the light's work queue, kept from column to column (4 MB is not worth making again each time)
 const Q = new Int32Array(1 << 20), QM = Q.length - 1;
@@ -329,10 +333,10 @@ function build(job, ny, c0, c1, base) {
     plants: new Buf(1024, TERRAIN),      // crossed sprites: grass, flowers, torches (hidden far away)
     leafIn: new Buf(1024, TERRAIN),      // faces between two leaf blocks (only drawn close up)
     chests: new Buf(64, TERRAIN),
+    xray: job.xray ? new Buf(64, TERRAIN) : null,
   };
-  /* Smart leaves: a face between two leaf blocks is kept only when one of
-     them is on the outside of the canopy. You cannot see the faces deep
-     inside a tree anyway, and in a jungle they are most of the triangles. */
+  /* Smart leaves: shared faces are kept only when both leaf blocks are on
+     the outside of the canopy, reducing internal edges and outline noise. */
   const { LEAF, MODEL, SMALL, ORIENT, WL, LOOK } = tables();
   const onSurface = j => {
     let v = outer[j];
@@ -639,7 +643,7 @@ function build(job, ny, c0, c1, base) {
   }
 
   /* ---- walk the middle chunk ---- */
-  const bufs = [out.opaque, out.cutout, out.translucent, out.fluid, out.plants, out.leafIn, out.chests];
+  const bufs = [out.opaque, out.cutout, out.translucent, out.fluid, out.plants, out.leafIn, out.chests, out.xray].filter(Boolean);
   const fast = !!job.fast;              // Minecraft's "fast" leaves: solid, with no faces between them
   const wy0 = part ? c0 * 16 : 0, wy1 = part ? Math.min(ny - 1, (c1 + 1) * 16) : ny - 1;
   for (let y = wy0; y < wy1; y++) {
@@ -660,6 +664,7 @@ function build(job, ny, c0, c1, base) {
         if (d.waterlogged) fluidCell(x, y, z, i, 1);     // the water around a sea plant
         if (MODEL[b]) { drawModel(x, y, z, i, d, k2, rnd); continue; }
         if (d.shape === 'cube' || d.shape === 'snow' || d.shape === 'cactus') {
+          const xrayOre = !!job.xray && !!XRAY_ORE[b];
           const throughWall = THROUGH_WALL[d.id];
           const fastLeaf = fast && d.leaves;
           const buf = d.pass === 'opaque' || fastLeaf ? out.opaque : d.pass === 'translucent' ? out.translucent : out.cutout;
@@ -680,10 +685,11 @@ function build(job, ny, c0, c1, base) {
               if (f !== 2 && f !== 3 && d.shape === 'snow' && nb === b && (rm[i + NSTEP[f]] & 7) >= (rm[i] & 7)) continue;
             }
             else {
-              if (OPAQUE[nb]) continue;
+              if (OPAQUE[nb] && !xrayOre) continue;
               if (f === 2 && COVER[nb]) continue;
               if (fastLeaf && LEAF[nb]) continue;
-              if (d.leaves && LEAF[nb] && !onSurface(i) && !onSurface(i + NSTEP[f])) continue;
+              if (d.leaves && LEAF[nb] &&
+                ((f === 2 || f === 3) || !onSurface(i) || !onSurface(i + NSTEP[f]))) continue;
               if (nb === b && d.pass !== 'cutout') continue;            // glass to glass, ice to ice
               if (nb === b && d.pass === 'cutout' && !d.leaves) continue;
               if (d.shape === 'cactus' && (f === 2 || f === 3) && nb === b) continue;
@@ -715,6 +721,8 @@ function build(job, ny, c0, c1, base) {
               if (snowy) { layer = d.snowy; ftinted = 0; fTint = 0xffffff; }
               else flags |= 16;                       // grass on the dirt: the overlay, tinted
             } else if (d.overlay !== undefined && f === 3) { ftinted = 0; fTint = 0xffffff; }
+            if (xrayOre && !XRAY_ORE[nb]) face(out.xray, f, x, y, z, i, layer, flags | ftinted, fTint, 0, rnd, box, mir);
+            if (xrayOre && OPAQUE[nb]) continue;
             // a face between two leaf blocks goes where it can be left out at a distance
             const fb = d.leaves && !fastLeaf && LEAF[rb[i + NSTEP[f]]] ? out.leafIn : buf;
             face(fb, f, x, y, z, i, layer, flags | ftinted | (fastLeaf ? 128 : 0), fTint, fastLeaf ? 0 : (d.wave || 0), rnd, box, mir);
@@ -866,7 +874,7 @@ function build(job, ny, c0, c1, base) {
     for (let x = 0; x < 16; x++) light[o + x] = lightAt(y, z, x);
   }
   const parts = {};
-  for (const k of KINDS) parts[k] = out[k].out();
+  for (const k of KINDS) parts[k] = out[k] ? out[k].out() : null;
   /* The light of the whole region, kept with the meshes of the columns
      round the player (job.keep): what an edit there is compared against. */
   let region = null;

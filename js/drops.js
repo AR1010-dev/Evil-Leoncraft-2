@@ -39,20 +39,23 @@
      dropItem(world, x, y, z, 'diamond', 2)     from anywhere (mob loot...)
      giveXp(x, y, z, 7)
 --------------------------------------------------------------------------- */
-import { B, BLOCKS, SOLID, FLUID } from './blocks.js?v=117';
-import { collisionBoxes } from './models.js?v=117';
-import { LEVEL, FALLING } from './world-const.js?v=117';
-import { lightNear } from './lightlevel.js?v=117';
-import { glints } from './render/armor.js?v=117';
-import { setGlint } from './render/glint.js?v=117';
-import { DIMS } from './dims.js?v=117';
-import { DRAW, I, ITEMS, maxStack, sameItem, withCount, stackToJSON, stackFromJSON, textureLayer } from './items.js?v=117';
-import { blockGeometry, intAttribute } from './render/blockmesh.js?v=117';
+import { B, BLOCKS, SOLID, FLUID } from './blocks.js?v=118';
+import { collisionBoxes } from './models.js?v=118';
+import { LEVEL, FALLING } from './world-const.js?v=118';
+import { lightNear } from './lightlevel.js?v=118';
+import { glints } from './render/armor.js?v=118';
+import { setGlint } from './render/glint.js?v=118';
+import { DIMS } from './dims.js?v=118';
+import { DRAW, I, ITEMS, maxStack, sameItem, withCount, stackToJSON, stackFromJSON, textureLayer } from './items.js?v=118';
+import { blockGeometry, intAttribute } from './render/blockmesh.js?v=118';
 const THREE = window.THREE;
 
 const ITEM_W = 0.125, ITEM_H = 0.25;           // half width, height
 const ORB_W = 0.5, ORB_H = 0.5;                 // full width and height
 const ORB_SIZES = [2477, 1237, 617, 307, 149, 73, 37, 17, 7, 3, 1];
+const OUTLINE_CORNERS = [[-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, -0.5],
+  [-0.5, -0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5]];
+const OUTLINE_EDGES = [0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6, 6, 7, 7, 4, 0, 4, 1, 5, 2, 6, 3, 7];
 /* At most this many lying about in a dimension (the server's own limit for a world): past it the one nearest its
    end goes to make room, never a death's spill while anything else could go. Stacks of the same item join, and a
    blast's drops come out in stacks, so a world rarely comes near it. */
@@ -127,6 +130,23 @@ export class Drops {
     this.world = world; this.R = renderer;
     this.group = new THREE.Group();
     this.group.name = 'drops';
+    this.outlineGeometry = new THREE.BufferGeometry();
+    this.outlineCapacity = 128;
+    this.outlineVertices = 0;
+    this.outlinePositions = new Float32Array(this.outlineCapacity * OUTLINE_EDGES.length * 3);
+    const outlineAttribute = new THREE.BufferAttribute(this.outlinePositions, 3);
+    outlineAttribute.setUsage(THREE.DynamicDrawUsage);
+    this.outlineGeometry.setAttribute('position', outlineAttribute);
+    this.outlineGeometry.setDrawRange(0, 0);
+    this.outlineMaterial = new THREE.LineBasicMaterial({ color: 0xffff00, transparent: true, opacity: 0.5, depthTest: true, depthWrite: false, toneMapped: false });
+    this.occludedOutlineMaterial = new THREE.LineBasicMaterial({ color: 0xb3a000, depthTest: true, depthWrite: false, depthFunc: THREE.GreaterDepth, toneMapped: false });
+    this.outline = new THREE.LineSegments(this.outlineGeometry, this.outlineMaterial);
+    this.outline.renderOrder = 1000;
+    this.outline.frustumCulled = false;
+    this.occludedOutline = new THREE.LineSegments(this.outlineGeometry, this.occludedOutlineMaterial);
+    this.occludedOutline.renderOrder = 1001;
+    this.occludedOutline.frustumCulled = false;
+    this.group.add(this.outline, this.occludedOutline);
     this.items = [];
     this.orbs = [];
     this.bits = [];                  // crumbs of food while eating
@@ -137,6 +157,8 @@ export class Drops {
     this.onXp = null;                // (points) the orb sound
     this.others = null;              // on a server: where the other players near you stand, for the orbs to go to (net/mobs.js Orbs sets it each tick)
     this._m = new THREE.Matrix4(); this._q = new THREE.Quaternion(); this._s = new THREE.Vector3(); this._p = new THREE.Vector3();
+    this._outlineMatrix = new THREE.Matrix4(); this._outlineScale = new THREE.Vector3(0.45, 0.45, 0.45);
+    this._outlineCorners = new Float32Array(24);
     this._lift = new THREE.Matrix4().makeTranslation(0, -1, 0);
     this._lift2 = new THREE.Matrix4().makeTranslation(0, -2, 0);      // for the copies' geometry, a block higher
     this._rot = new THREE.Matrix3();
@@ -150,6 +172,9 @@ export class Drops {
     this.items.length = 0; this.orbs.length = 0; this.bits.length = 0;
     for (const g of this.geo.values()) g.geometry.dispose();
     this.geo.clear();
+    this.outlineGeometry.dispose();
+    this.outlineMaterial.dispose();
+    this.occludedOutlineMaterial.dispose();
     if (this.group.parent) this.group.parent.remove(this.group);
     if (active === this) active = null;
   }
@@ -627,10 +652,40 @@ export class Drops {
     if (i >= 0) this.orbs.splice(i, 1);
   }
   _unmesh(e) {
-    if (!e.mesh) return;
-    this.group.remove(e.mesh);
-    e.mesh.geometry.dispose();
-    e.mesh = null;
+    if (e.mesh) {
+      this.group.remove(e.mesh);
+      e.mesh.geometry.dispose();
+      e.mesh = null;
+    }
+  }
+  _ensureOutlineCapacity(count) {
+    if (count <= this.outlineCapacity) return;
+    while (this.outlineCapacity < count) this.outlineCapacity *= 2;
+    this.outlineGeometry.dispose();
+    this.outlinePositions = new Float32Array(this.outlineCapacity * OUTLINE_EDGES.length * 3);
+    const attribute = new THREE.BufferAttribute(this.outlinePositions, 3);
+    attribute.setUsage(THREE.DynamicDrawUsage);
+    this.outlineGeometry.setAttribute('position', attribute);
+  }
+  _writeOutline(position, quaternion) {
+    const count = this.outlineVertices / OUTLINE_EDGES.length;
+    this._ensureOutlineCapacity(count + 1);
+    const e = this._outlineMatrix.compose(position, quaternion, this._outlineScale).elements;
+    const corners = this._outlineCorners;
+    for (let i = 0; i < OUTLINE_CORNERS.length; i++) {
+      const c = OUTLINE_CORNERS[i], j = i * 3;
+      corners[j] = e[0] * c[0] + e[4] * c[1] + e[8] * c[2] + e[12];
+      corners[j + 1] = e[1] * c[0] + e[5] * c[1] + e[9] * c[2] + e[13];
+      corners[j + 2] = e[2] * c[0] + e[6] * c[1] + e[10] * c[2] + e[14];
+    }
+    let at = this.outlineVertices * 3;
+    for (const i of OUTLINE_EDGES) {
+      const from = i * 3;
+      this.outlinePositions[at++] = corners[from];
+      this.outlinePositions[at++] = corners[from + 1];
+      this.outlinePositions[at++] = corners[from + 2];
+    }
+    this.outlineVertices += OUTLINE_EDGES.length;
   }
 
   /* ---- drawing ---- */
@@ -696,6 +751,15 @@ export class Drops {
   }
   update(dt, alpha, player, cam) {
     const P = player ? player.pos : null, m = this._m, q = this._q, s = this._s, p = this._p;
+    const opts = this.R.opts || {}, outlineOn = opts.dropHighlightsEnabled !== false;
+    const outlineColour = opts.dropHighlightColor ?? 0xffff00;
+    const outlineOpacity = opts.dropHighlightOpacity ?? 0.5;
+    const outlineRange = Math.max(0, opts.dropHighlightDistance | 0);
+    this.outline.visible = this.occludedOutline.visible = outlineOn;
+    this.outlineMaterial.color.setHex(outlineColour);
+    this.outlineMaterial.opacity = outlineOpacity;
+    this.occludedOutlineMaterial.color.setHex(outlineColour).multiplyScalar(0.7);
+    this.outlineVertices = 0;
     /* where taken things fly to: the player as drawn this frame, halfway between the feet and
        the eyes, as the game aims its pickup animation. (It used to be kept from the first thing
        ever picked up, a slip of precedence in "a || (a = v).set(...)", so everything after flew
@@ -753,6 +817,7 @@ export class Drops {
       m.compose(p, q, s).multiply(e.lifted ? this._lift2 : this._lift);
       e.mesh.matrix.copy(m);
       e.mesh.matrixWorld.copy(m);
+      if (outlineOn && (!outlineRange || !C || (p.x - C.x) ** 2 + (p.y - C.y) ** 2 + (p.z - C.z) ** 2 <= outlineRange * outlineRange)) this._writeOutline(p, q);
       // (the shimmer is a child: its place follows only when the parent's is worked out again)
       if (e.glint) e.mesh.matrixWorldNeedsUpdate = true;
     }
@@ -811,7 +876,11 @@ export class Drops {
       m.compose(p, q, s).multiply(this._lift);
       o.mesh.matrix.copy(m);
       o.mesh.matrixWorld.copy(m);
+      if (outlineOn && (!outlineRange || !C || (p.x - C.x) ** 2 + (p.y - C.y) ** 2 + (p.z - C.z) ** 2 <= outlineRange * outlineRange)) this._writeOutline(p, q);
     }
+    this.outlineGeometry.setDrawRange(0, this.outlineVertices);
+    const outlineAttribute = this.outlineGeometry.attributes.position;
+    outlineAttribute.needsUpdate = this.outlineVertices > 0;
   }
 
   /* ---- saving: the items and orbs of the dimension, wherever they lie (a death's spill far off waits there), with

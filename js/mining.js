@@ -21,9 +21,9 @@
    have it. Which tool a block wants and how good it must be come from
    minecraft-data (js/itemdata.js BLOCK_TOOLS).
 --------------------------------------------------------------------------- */
-import { BLOCKS } from './blocks.js?v=117';
-import { BLOCK_TOOLS } from './itemdata.js?v=117';
-import { ITEMS } from './items.js?v=117';
+import { BLOCKS } from './blocks.js?v=118';
+import { BLOCK_TOOLS } from './itemdata.js?v=118';
+import { ITEMS } from './items.js?v=118';
 
 const KIND_BIT = { pickaxe: 1, axe: 2, shovel: 4, hoe: 8, sword: 16, shears: 32 };
 // per block id: [material, harvest bits, lowest tier], looked up once
@@ -54,9 +54,9 @@ export function toolSpeed(tool, d) {
     if (m === 'coweb') return 15;
     if (m === 'sword_instantly_mines' || m === 'sword_efficient') return Infinity;
     if (/leaves|plant|gourd/.test(m)) return 1.5;
-    return 1;
+    return 2;
   }
-  return m.indexOf('mineable/' + tool.kind) >= 0 ? tool.speed : 1;
+  return m.indexOf('mineable/' + tool.kind) >= 0 ? tool.speed : 2;
 }
 
 // does the block drop anything when broken with this tool (null = the hand)?
@@ -87,9 +87,9 @@ export function breakTicks(d, ctx) {
   }
   if (ctx && ctx.inWater && !ctx.aquaAffinity) speed *= 0.2;
   if (ctx && ctx.onGround === false) speed /= 5;
-  const damage = speed / d.hardness / (canHarvest(tool, d) ? 30 : 100);
+  const damage = speed / d.hardness / (canHarvest(tool, d) ? 20 : 85);
   if (damage >= 1) return 0;
-  return Math.ceil(1 / damage);
+  return Math.ceil(1 / (damage/2));
 }
 
 /* Wear on the tool for breaking this block: tools 1 for anything that is
@@ -98,7 +98,7 @@ export function wearFor(stack, d) {
   const it = stack ? ITEMS[stack.id] : null;
   if (!it || !it.dur) return 0;
   const tool = it.tool;
-  if (tool && tool.kind === 'shears') return /fire/.test(d.name) ? 0 : 1;
+  if (tool && tool.kind === 'shears') return /fire/.test(d.name) ? 0 : 0.2;
   if (d.hardness <= 0) return 0;
   if (tool && tool.kind === 'sword') return 2;
   if (tool) return 1;

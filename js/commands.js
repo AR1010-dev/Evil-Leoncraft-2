@@ -10,16 +10,17 @@
    Each command gets a context: ctx.game (the world being played), and
    ctx.say(text, colour) for the reply.
 --------------------------------------------------------------------------- */
-import { B, BLOCKS, FLUID } from './blocks.js?v=117';
-import { Y0 } from './world-const.js?v=117';
-import { ENCHANTS } from './itemdata.js?v=117';
-import { stateOf } from './gen/states.js?v=117';
+import { B, BLOCKS, FLUID } from './blocks.js?v=118';
+import { Y0 } from './world-const.js?v=118';
+import { ENCHANTS } from './itemdata.js?v=118';
+import { stateOf } from './gen/states.js?v=118';
 
 const THREE = window.THREE;
 const REG = new Map();
 const OBJECT_HERE = new WeakMap();
 const OBJECT_HERE_DISABLED = new WeakSet();
 const OBJECT_HERE_TARGET = new THREE.Vector3();
+const OBJECT_HERE_RENDER_ORDER = 1e9;
 const OBJECT_HERE_EDGES = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
 const OBJECT_HERE_CORNERS = [[-0.4, -1, -0.4], [0.4, -1, -0.4], [0.4, -1, 0.4], [-0.4, -1, 0.4], [-0.4, 1, -0.4], [0.4, 1, -0.4], [0.4, 1, 0.4], [-0.4, 1, 0.4]];
 const OBJECT_HERE_EDGE_POINTS = OBJECT_HERE_EDGES.flatMap(([a, b]) => [...OBJECT_HERE_CORNERS[a], ...OBJECT_HERE_CORNERS[b]]);
@@ -39,7 +40,7 @@ function entityMarker(renderer, capacity) {
   const lines = new THREE.LineSegments(geometry, material);
   lines.name = 'objecthere-entities';
   lines.frustumCulled = false;
-  lines.renderOrder = 1e6;
+  lines.renderOrder = OBJECT_HERE_RENDER_ORDER;
   scene.add(lines);
   return { type: 'entities', scene, lines, geometry, material };
 }
@@ -546,9 +547,9 @@ register('objecthere', {
       const edgeMaterial = new THREE.LineBasicMaterial({ color: 0xff2020, depthTest: false, depthWrite: false, transparent: true });
       const cube = new THREE.Mesh(geometry, material);
       cube.name = 'objecthere';
-      cube.renderOrder = 1e6;
+      cube.renderOrder = OBJECT_HERE_RENDER_ORDER;
       const outline = new THREE.LineSegments(edges, edgeMaterial);
-      outline.renderOrder = 1e6 + 1;
+      outline.renderOrder = OBJECT_HERE_RENDER_ORDER + 1;
       group.add(cube, outline);
       scene.add(group);
       marker = { type: 'position', scene, group, geometry, material, edges, edgeMaterial };
@@ -618,7 +619,7 @@ function blockArg(s) {
 }
 // the block tags, from the generator's data (loaded only when a tag is asked for)
 let TAGS = null;
-const loadTags = () => import('./gen/vdata.js?v=117').then(m => { TAGS = m.VDATA.block_tags || {}; });
+const loadTags = () => import('./gen/vdata.js?v=118').then(m => { TAGS = m.VDATA.block_tags || {}; });
 function tagIds(name, seen = new Set()) {
   const key = name.replace(/^minecraft:/, '');
   const list = TAGS[key];

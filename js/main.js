@@ -18,50 +18,79 @@
    middle click pick block, F1 hide the HUD, F3 details, [ and ] the clock,
    F7 render scale, F8 quality.
 --------------------------------------------------------------------------- */
-import { B, BLOCKS, resolveTextures, FLUID } from './blocks.js?v=117';
-import { BIOMES, biomeColours } from './biomes.js?v=117';
-import { searchSpawn } from './spawn.js?v=117';
-import { parseSeed } from './gen/random.js?v=117';
-import { World, startWorkers, practise } from './world.js?v=117';
-import { Fluids } from './fluids.js?v=117';
-import { Player } from './player.js?v=117';
-import { Renderer } from './render/renderer.js?v=117';
-import { Overlay } from './render/overlay.js?v=117';
-import { setSkin, setSkinPart, setCape, useDefaultSkin } from './render/avatar.js?v=117';
-import { Packs, resolver, blockTextures, guiSheets, logoArt, skinUrl, colormaps, composedTextures, itemStripFrom } from './ui/pack.js?v=117';
-import { SEA, Y0 } from './world-const.js?v=117';
-import { Gui, Options, lowEndDevice } from './ui/gui.js?v=117';
-import { TitleScreen, PauseScreen, LoadingScreen, DeathScreen, ConfirmScreen, Worlds, setLogoArt, seedFrom, UPDATE } from './ui/menus.js?v=117';
-import { Account } from './net/account.js?v=117';
-import { LoginScreen } from './ui/account.js?v=117';
-import { ItemIcons } from './ui/icons.js?v=117';
-import { Inventory, inventoryScreen } from './ui/inventory.js?v=117';
-import { Hud } from './ui/hud.js?v=117';
-import { Interactor } from './interact.js?v=117';
-import { QuickBlocks } from './quickblocks.js?v=117';
-import { MAPS, isFilledMap } from './maps.js?v=117';
-import { Save } from './save.js?v=117';
-import { Chat, ChatScreen } from './ui/chat.js?v=117';
-import { displayName, setItemNames, register, gameRule, execute, updateObjectHere } from './commands.js?v=117';
-import { applyModeRules, ModeKeys } from './modes.js?v=117';
-import { Particles } from './render/particles.js?v=117';
-import { DRAW, setItemLayers, ITEMS, itemId, displayName as itemDisplay, itemName } from './items.js?v=117';
-import { loadItemStrip, addItemPieces } from './itemtex.js?v=117';
-import { setLayerPixels } from './render/blockmesh.js?v=117';
-import { EntityStore } from './entities/store.js?v=117';
-import { paintSome, primeAtlas } from './entities/mobart.js?v=117';
-import { DIMS } from './dims.js?v=117';
-import { addDimArt, endSkyTexture } from './dim/art.js?v=117';
-import { VideoSettings } from './settings.js?v=117';
-import { pickBiome } from './worldgen.js?v=117';
-import { initSound, soundWorld, soundParts, soundTick, soundFrame, soundLeave } from './sound/game.js?v=117';
-import { loadEntityArt } from './entities/packart.js?v=117';
-import { ITEM_TEX } from './itemdata.js?v=117';
-import { debugLines, F3_HELP } from './ui/debug.js?v=117';
-import { Spin } from './render/screenfx.js?v=117';
-import { Minimap } from './ui/minimap.js?v=117';
+import { B, BLOCKS, resolveTextures, FLUID } from './blocks.js?v=118';
+import { BIOMES, biomeColours } from './biomes.js?v=118';
+import { searchSpawn } from './spawn.js?v=118';
+import { parseSeed } from './gen/random.js?v=118';
+import { World, startWorkers, practise } from './world.js?v=118';
+import { Fluids } from './fluids.js?v=118';
+import { Player } from './player.js?v=118';
+import { Renderer } from './render/renderer.js?v=118';
+import { Overlay } from './render/overlay.js?v=118';
+import { setSkin, setSkinPart, setCape, useDefaultSkin } from './render/avatar.js?v=118';
+import { Packs, resolver, blockTextures, guiSheets, logoArt, skinUrl, colormaps, composedTextures, itemStripFrom } from './ui/pack.js?v=118';
+import { SEA, Y0 } from './world-const.js?v=118';
+import { Gui, Options, lowEndDevice } from './ui/gui.js?v=118';
+import { TitleScreen, PauseScreen, LoadingScreen, DeathScreen, ConfirmScreen, Worlds, setLogoArt, seedFrom, UPDATE } from './ui/menus.js?v=118';
+import { Account } from './net/account.js?v=118';
+import { startLookSync } from './net/looksync.js?v=118';
+import { LoginScreen } from './ui/account.js?v=118';
+import { ItemIcons } from './ui/icons.js?v=118';
+import { Inventory, inventoryScreen } from './ui/inventory.js?v=118';
+import { AutoArmor } from './autoarmor.js?v=118';
+import { Hud } from './ui/hud.js?v=118';
+import { Interactor } from './interact.js?v=118';
+import { QuickBlocks } from './quickblocks.js?v=118';
+import { MAPS, isFilledMap } from './maps.js?v=118';
+import { Save } from './save.js?v=118';
+import { CHAMS_STYLE_NAMES } from './render/chams-styles.js?v=118';
+import { Chat, ChatScreen } from './ui/chat.js?v=118';
+import { displayName, setItemNames, register, gameRule, execute, updateObjectHere } from './commands.js?v=118';
+import { applyModeRules, ModeKeys } from './modes.js?v=118';
+import { Particles } from './render/particles.js?v=118';
+import { DRAW, setItemLayers, ITEMS, itemId, displayName as itemDisplay, itemName } from './items.js?v=118';
+import { loadItemStrip, addItemPieces } from './itemtex.js?v=118';
+import { setLayerPixels } from './render/blockmesh.js?v=118';
+import { EntityStore } from './entities/store.js?v=118';
+import { paintSome, primeAtlas } from './entities/mobart.js?v=118';
+import { DIMS } from './dims.js?v=118';
+import { addDimArt, endSkyTexture } from './dim/art.js?v=118';
+import { VideoSettings } from './settings.js?v=118';
+import { pickBiome } from './worldgen.js?v=118';
+import { initSound, soundWorld, soundParts, soundTick, soundFrame, soundLeave } from './sound/game.js?v=118';
+import { loadEntityArt } from './entities/packart.js?v=118';
+import { ITEM_TEX } from './itemdata.js?v=118';
+import { debugLines, F3_HELP } from './ui/debug.js?v=118';
+import { Spin } from './render/screenfx.js?v=118';
+import { TracerRenderer } from './render/tracer.js?v=118';
+import { Minimap } from './ui/minimap.js?v=118';
+import { AutoOffhand } from './autooffhand.js?v=118';
+import { AutoTarget } from './autotarget.js?v=118';
 const LOCAL_PAGE = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(location.hostname);
 const THREE = window.THREE;
+function tracerLineOfSight(world, from, to) {
+  if (!world || typeof world.get !== 'function') return false;
+  const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
+  let x = Math.floor(from.x), y = Math.floor(from.y), z = Math.floor(from.z);
+  const endX = Math.floor(to.x), endY = Math.floor(to.y), endZ = Math.floor(to.z);
+  const sx = Math.sign(dx), sy = Math.sign(dy), sz = Math.sign(dz);
+  const tx = dx ? Math.abs(1 / dx) : Infinity, ty = dy ? Math.abs(1 / dy) : Infinity, tz = dz ? Math.abs(1 / dz) : Infinity;
+  let mx = dx > 0 ? (x + 1 - from.x) / dx : dx < 0 ? (from.x - x) / -dx : Infinity;
+  let my = dy > 0 ? (y + 1 - from.y) / dy : dy < 0 ? (from.y - y) / -dy : Infinity;
+  let mz = dz > 0 ? (z + 1 - from.z) / dz : dz < 0 ? (from.z - z) / -dz : Infinity;
+  for (let steps = 0; steps < 512; steps++) {
+    if (typeof world.loaded === 'function' && !world.loaded(x, z)) return false;
+    if (x !== endX || y !== endY || z !== endZ) {
+      const id = world.get(x, y, z), block = BLOCKS[id];
+      if (id === undefined || FLUID[id] || (block && block.solid && block.pass === 'opaque')) return false;
+    }
+    if (x === endX && y === endY && z === endZ) return true;
+    if (mx <= my && mx <= mz) { x += sx; mx += tx; }
+    else if (my <= mz) { y += sy; my += ty; }
+    else { z += sz; mz += tz; }
+  }
+  return false;
+}
 /* The game's own parts (js/parts.js: mobs, the simulation, the dimensions, the hands, advancements,
    statistics, the server code...) are not wanted by the title screen: they are loaded once it is up
    (loadParts), so a first visit loads 91 modules (about 600 KB) less before it. Each name below is
@@ -77,10 +106,10 @@ let enchantDebug, Survival, survivalHooks, respawnPlayer, respawnSpot, Drops, dr
    module runs in just the order one import of parts.js would run it. PART_STEPS is parts.js's own
    list; a line added there goes here too, in the same place (one only added there still loads, with
    parts.js at the end). */
-const PART_STEPS = ['./enchanting.js?v=117', './survival.js?v=117', './life.js?v=117', './drops.js?v=117', './containers.js?v=117',
-  './hands.js?v=117', './entities/manager.js?v=117', './sim/sim.js?v=117', './dim/realms.js?v=117', './struct/spawners.js?v=117',
-  './details.js?v=117', './ui/sign.js?v=117', './dials.js?v=117', './ui/multiplayer.js?v=117', './adv/game.js?v=117',
-  './stats.js?v=117', './recipes.js?v=117'];
+const PART_STEPS = ['./enchanting.js?v=118', './survival.js?v=118', './life.js?v=118', './drops.js?v=118', './containers.js?v=118',
+  './hands.js?v=118', './entities/manager.js?v=118', './sim/sim.js?v=118', './dim/realms.js?v=118', './struct/spawners.js?v=118',
+  './details.js?v=118', './ui/sign.js?v=118', './dials.js?v=118', './ui/multiplayer.js?v=118', './adv/game.js?v=118',
+  './stats.js?v=118', './recipes.js?v=118'];
 // the next frame drawn (a page in the background draws none, and waits for nothing)
 const breath = () => document.hidden ? Promise.resolve() : new Promise(res => {
   let done = false;
@@ -90,7 +119,7 @@ const breath = () => document.hidden ? Promise.resolve() : new Promise(res => {
 const FETCHED = 'lc2: fetched, not run';
 const script = src => URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
 async function importParts(tries) {
-  const last = './parts.js?v=117' + (tries ? '&retry=' + tries : '');
+  const last = './parts.js?v=118' + (tries ? '&retry=' + tries : '');
   /* Everything down and linked first, nothing run: a module that imports them all, after one that
      throws. A module graph stops running at its first error, so the rest are left linked and waiting
      for the imports below. (Any other error is a real one: a module that could not be had.) */
@@ -338,11 +367,11 @@ async function boot() {
   let resumeTo = null, resumeMp = null;
   try { const id = sessionStorage.getItem('lc2_resume'); sessionStorage.removeItem('lc2_resume'); if (id) { resumeTo = Worlds.get(id); if (!resumeTo && id.startsWith('mp-')) resumeMp = id.slice(3); } } catch (e) {}
   let rendererUp = false;           // the title's world is started before the renderer exists (makeMenu)
-  const early = new Map();          // "cx,cz" -> [cx, cz, mesh] made before the renderer was
+  const early = new Map();          // "cx,cz" -> [cx, cz, mesh, load time, previously loaded]
   status('Loading textures…', 0.05);
   const base = new URL('../textures/', import.meta.url).href;
   // stamped like the code, so a rebuilt texture set always reaches the browser
-  const TEX_V = '?v=117';
+  const TEX_V = '?v=118';
   /* Everything is asked for at once. The title's world needs only the
      texture list and the two colour maps, so it starts being made as soon
      as those are in (makeMenu), while the big textures, the renderer and the
@@ -389,7 +418,185 @@ async function boot() {
   const canvas = $('#c');
   const rs = options.get('renderScale');
   const renderer = new Renderer(canvas, textures, Object.assign({}, LOOK, { renderDist: RD, scale: +(params.get('scale') || (rs !== 'auto' ? rs : 1)),
-    brightness: options.get('brightness'), clouds: options.get('clouds') }));
+    brightness: options.get('brightness'), clouds: options.get('clouds'),
+    fastLoadMarkers: options.get('fastLoadMarkers'), fastLoadThreshold: options.get('fastLoadThreshold'),
+    fastLoadDistance: options.get('fastLoadDistance'), fastLoadColor: options.get('fastLoadColor'), fastLoadOpacity: options.get('fastLoadOpacity') }));
+  renderer.tracerRenderer = new TracerRenderer({ scene: renderer.scene, THREE });
+  const syncModSettings = () => {
+    const get = k => options.get(k);
+    Object.assign(renderer.opts, {
+      fastLoadMarkers: get('fastLoadMarkers') !== false,
+      fastLoadThreshold: get('fastLoadThreshold') ?? 40,
+      fastLoadDistance: get('fastLoadDistance') ?? 256,
+      fastLoadColor: get('fastLoadColor') ?? 0x00ff00,
+      fastLoadOpacity: get('fastLoadOpacity') ?? 0.85,
+      starMotionPreset: get('starMotionPreset') || 'sky-follow',
+      xrayEnabled: get('xrayEnabled') === true,
+      xrayOres: get('xrayOres') !== false,
+      xrayDistance: get('xrayDistance') ?? 0,
+      chamsEnabled: get('chamsEnabled') === true,
+      chamsColor: get('chamsColor') ?? 0x00ffff,
+      chamsTint: get('chamsTint') ?? 0.45,
+      chamsHandGlowEnabled: get('chamsHandGlowEnabled') !== false,
+      chamsHandGlowStrength: get('chamsHandGlowStrength') ?? 1,
+      chamsHandGlowRadius: get('chamsHandGlowRadius') ?? 10,
+      chamsHandGlowSoftness: get('chamsHandGlowSoftness') ?? 0.65,
+      chamsHandGlowOpacity: get('chamsHandGlowOpacity') ?? 0.6,
+      chamsRainbow: get('chamsRainbow') === true,
+      chamsRainbowSpeed: get('chamsRainbowSpeed') ?? 0.2,
+      chamsRainbowSaturation: get('chamsRainbowSaturation') ?? 1,
+      chamsRainbowBlend: get('chamsRainbowBlend') ?? 1,
+      chamsRimStrength: get('chamsRimStrength') ?? 0.35,
+      chamsRimWidth: get('chamsRimWidth') ?? 3,
+      chamsGradientColor: get('chamsGradientColor') ?? 0xff00ff,
+      chamsGradientBlend: get('chamsGradientBlend') ?? 0,
+      chamsSparkleStrength: get('chamsSparkleStrength') ?? 0.5,
+      chamsSparkleScale: get('chamsSparkleScale') ?? 35,
+      chamsSparkleSpeed: get('chamsSparkleSpeed') ?? 1,
+      chamsGlow: get('chamsGlow') ?? 0.35,
+      chamsSkyEnabled: get('chamsSkyEnabled') !== false,
+      chamsTransparency: get('chamsTransparency') === true,
+      chamsOpacity: get('chamsOpacity') ?? 0.65,
+      chamsStyle: CHAMS_STYLE_NAMES.includes(get('chamsStyle')) ? get('chamsStyle') : 'tint',
+      chamsOutlineColor: get('chamsOutlineColor') ?? 0x00ffff,
+      chamsOutlineOpacity: get('chamsOutlineOpacity') ?? 0.9,
+      chamsOutlineLiquidOpacity: get('chamsOutlineLiquidOpacity') ?? 0.35,
+      chamsOutlineWidth: get('chamsOutlineWidth') ?? 1,
+      chamsOutlineSensitivity: get('chamsOutlineSensitivity') ?? 0.05,
+      chamsOutlineDistance: get('chamsOutlineDistance') ?? 0,
+      chamsOutlineDistanceThin: get('chamsOutlineDistanceThin') ?? 0.5,
+      chamsOutlineSecondaryColor: get('chamsOutlineSecondaryColor') ?? 0xffffff,
+      chamsOutlineColorBlend: get('chamsOutlineColorBlend') ?? 0,
+      chamsOutlineRainbow: get('chamsOutlineRainbow') === true,
+      chamsOutlineRainbowSpeed: get('chamsOutlineRainbowSpeed') ?? 0.5,
+      chamsOutlineRainbowSaturation: get('chamsOutlineRainbowSaturation') ?? 1,
+      chamsOutlineGlow: get('chamsOutlineGlow') ?? 0,
+      chamsOutlineGlowWidth: get('chamsOutlineGlowWidth') ?? 2,
+      chamsOutlineSoftness: get('chamsOutlineSoftness') ?? 1,
+      chamsOutlineDiagonal: get('chamsOutlineDiagonal') ?? 0.5,
+      chamsOutlineEdgeMode: get('chamsOutlineEdgeMode') ?? 'soft',
+      chamsOutlinePulse: get('chamsOutlinePulse') === true,
+      chamsOutlinePulseSpeed: get('chamsOutlinePulseSpeed') ?? 1,
+      chamsOutlinePulseAmount: get('chamsOutlinePulseAmount') ?? 0.2,
+      chamsOutlineFill: get('chamsOutlineFill') === true,
+      chamsOutlineFillOpacity: get('chamsOutlineFillOpacity') ?? 0.15,
+      chamsOutlineDashes: get('chamsOutlineDashes') === true,
+      chamsOutlineDashScale: get('chamsOutlineDashScale') ?? 24,
+      chamsOutlineDashSpeed: get('chamsOutlineDashSpeed') ?? 1,
+      chamsOutlineInnerOpacity: get('chamsOutlineInnerOpacity') ?? 1,
+      chamsOutlineCornerBoost: get('chamsOutlineCornerBoost') ?? 0.2,
+      chamsOutlineFadeStart: get('chamsOutlineFadeStart') ?? 0,
+      chamsOutlineFadeEnd: get('chamsOutlineFadeEnd') ?? 512,
+      chamsOutlineBrightness: get('chamsOutlineBrightness') ?? 1,
+      chamsHeldOutlineEnabled: get('chamsHeldOutlineEnabled') !== false,
+      chamsHeldOutlineColor: get('chamsHeldOutlineColor') ?? 0x00ffff,
+      chamsHeldOutlineOpacity: get('chamsHeldOutlineOpacity') ?? 1,
+      chamsHandOutlineEnabled: get('chamsHandOutlineEnabled') !== false,
+      chamsHandOutlineColor: get('chamsHandOutlineColor') ?? 0x00ffff,
+      chamsHandOutlineOpacity: get('chamsHandOutlineOpacity') ?? 1,
+      chamsHandOutlineWidth: get('chamsHandOutlineWidth') ?? 2,
+      chamsOutlineBlur: get('chamsOutlineBlur') ?? 0,
+      dropHighlightsEnabled: get('dropHighlightsEnabled') !== false,
+      dropHighlightColor: get('dropHighlightColor') ?? 0xffff00,
+      dropHighlightOpacity: get('dropHighlightOpacity') ?? 0.5,
+      dropHighlightDistance: get('dropHighlightDistance') ?? 0,
+      mapHighlightEnabled: get('mapHighlightEnabled') !== false,
+      mapHighlightColor: get('mapHighlightColor') ?? 0xb3a000,
+      mapHighlightOpacity: get('mapHighlightOpacity') ?? 0.5,
+    });
+    renderer.setEnvironmentalClarity({
+      enabled: get('antiBlindEnabled') === true,
+      blindnessOpacity: get('antiBlindBlindnessOpacity') ?? 0,
+      darknessOpacity: get('antiBlindDarknessOpacity') ?? 0,
+      nauseaOpacity: get('antiBlindNauseaOpacity') ?? 0,
+      fogRestoration: get('antiBlindRestoreFog') === false ? 0 : 1,
+      wobbleDampening: get('antiBlindShakeDampening') ?? 0.75,
+      colorCorrection: get('antiBlindColorCorrection') ?? 0,
+      ambientBoost: get('antiBlindAmbientBoost') ?? 0,
+      flashThreshold: get('antiBlindFlashThreshold') ?? 0.8,
+      customOverlayOpacity: get('antiBlindCustomOverlays') === false ? 0 : 1,
+      transitionTime: get('antiBlindTransitionTime') ?? 0.25,
+    });
+    const reduction = Math.max(0, Math.min(1, Number(get('fastPlaceDelayReduction')) || 0));
+    const baseInterval = Math.max(50, Math.min(500, Number(get('fastPlaceUpdateInterval')) || 200));
+    const rapidPlacement = {
+      enabled: get('fastPlaceEnabled') === true,
+      updateIntervalMs: Math.max(50, baseInterval * (1 - reduction)),
+      tickPlacementCap: get('fastPlaceTickCap') ?? 4,
+      velocityLeadTicks: (get('fastPlaceVelocityOffset') ?? 0) * 4,
+      alignmentCorrection: get('fastPlaceAlignmentCorrection') === true,
+      blocksOnly: get('fastPlaceBlocksOnly') !== false,
+    };
+    if (game && game.inter) game.inter.configureRapidPlacement(rapidPlacement);
+    const anchor = get('tracerAnchor');
+    const anchorY = anchor === 'top' ? 1 : anchor === 'center' ? 0 : -1;
+    const healthColors = get('tracerHealthColors') !== false;
+    const entityColor = 0xffffff;
+    renderer.tracerRenderer.configure({
+      enabled: get('tracerEnabled') === true,
+      anchor: { x: 0, y: anchorY },
+      renderDistance: get('tracerDistance') ?? 64,
+      opacityFalloff: get('tracerOpacityFade') ?? 0.5,
+      thickness: get('tracerWidth') ?? 2,
+      includePlayers: get('tracerPlayers') !== false,
+      includeTeammates: get('tracerPlayers') !== false,
+      includeMobs: get('tracerMobs') === true,
+      entityColor,
+      teammateColor: get('tracerRelationshipColors') === false ? entityColor : 0x48c8ff,
+      lowHealthColor: healthColors ? 0xff4545 : entityColor,
+      highHealthColor: healthColors ? 0x62ee79 : entityColor,
+      lockOnColor: get('tracerLockColor') ?? 0xff5555,
+    });
+    const xray = get('xrayEnabled') === true;
+    renderer.xrayMaterial.uniforms.uXrayOpacity.value = get('xrayOpacity') ?? 0.75;
+    const enabled = !xray && get('blockHighlightsEnabled') !== false;
+    renderer.U.uHighlightChest.value = enabled && get('highlightChests') !== false ? 1 : 0;
+    renderer.U.uHighlightShulker.value = !xray && enabled && get('highlightShulkers') !== false ? 1 : 0;
+    renderer.U.uHighlightContainer.value = !xray && enabled && get('highlightContainers') !== false ? 1 : 0;
+    renderer.U.uHighlightSign.value = !xray && enabled && get('highlightSigns') !== false ? 1 : 0;
+    renderer.U.uHighlightBanner.value = !xray && enabled && get('highlightBanners') !== false ? 1 : 0;
+    renderer.U.uHighlightOpacity.value = xray ? (get('xrayOpacity') ?? 0.75) : get('highlightOpacity') ?? 0.5;
+    const tint = get('highlightTint') ?? 0xffffff;
+    renderer.U.uHighlightTint.value.set(((tint >> 16) & 255) / 255, ((tint >> 8) & 255) / 255, (tint & 255) / 255);
+    const chamsColor = get('chamsColor') ?? 0x00ffff;
+    renderer.U.uChamsEnabled.value = get('chamsEnabled') === true ? 1 : 0;
+    renderer.U.uChamsSky.value = get('chamsSkyEnabled') !== false ? 1 : 0;
+    const chamsStyle = CHAMS_STYLE_NAMES.indexOf(get('chamsStyle'));
+    renderer.U.uChamsStyle.value = Math.max(chamsStyle, 0);
+    renderer.U.uChamsEffectAmount.value = get('chamsEffectAmount') ?? 1;
+    renderer.U.uChamsTint.value = get('chamsTint') ?? 0.45;
+    renderer.U.uChamsGlow.value = get('chamsGlow') ?? 0.35;
+    renderer.U.uChamsTransparency.value = get('chamsTransparency') === true ? 1 : 0;
+    renderer.U.uChamsOpacity.value = get('chamsOpacity') ?? 0.65;
+    renderer.U.uChamsFx1.value.set(get('chamsFxBrightness') ?? 0, get('chamsFxSaturation') ?? 1,
+      get('chamsFxContrast') ?? 1, (get('chamsFxHue') ?? 0) * Math.PI / 180);
+    renderer.U.uChamsFx2.value.set(get('chamsPulse') ? 1 : 0, get('chamsPulseSpeed') ?? 1,
+      get('chamsPulseAmount') ?? 0.2, get('chamsShimmerSpeed') ?? 0.15);
+    renderer.U.uChamsFx3.value.set(get('chamsShimmerScale') ?? 26, get('chamsShimmerIntensity') ?? 0.75, 0, 0);
+    renderer.U.uChamsFx4.value.set(get('chamsRainbow') ? 1 : 0, get('chamsRainbowSpeed') ?? 0.2,
+      get('chamsRainbowSaturation') ?? 1, get('chamsRainbowBlend') ?? 1);
+    renderer.U.uChamsFx5.value.set(get('chamsRimStrength') ?? 0.35, get('chamsRimWidth') ?? 3, get('chamsGradientBlend') ?? 0, 0);
+    renderer.U.uChamsFx6.value.set(get('chamsSparkleStrength') ?? 0.5, get('chamsSparkleScale') ?? 35,
+      get('chamsSparkleSpeed') ?? 1, 0);
+    renderer.U.uChamsColor.value.set(((chamsColor >> 16) & 255) / 255, ((chamsColor >> 8) & 255) / 255, (chamsColor & 255) / 255);
+    const gradientColor = get('chamsGradientColor') ?? 0xff00ff;
+    renderer.U.uChamsGradientColor.value.set(((gradientColor >> 16) & 255) / 255, ((gradientColor >> 8) & 255) / 255, (gradientColor & 255) / 255);
+    const outlineColor = get('chamsOutlineColor') ?? 0x00ffff;
+    renderer.U.uChamsOutlineColor.value.set(((outlineColor >> 16) & 255) / 255, ((outlineColor >> 8) & 255) / 255, (outlineColor & 255) / 255);
+    renderer.chamsOutlineMaterial.color.setHex(outlineColor);
+    const heldOutlineColor = get('chamsHeldOutlineColor') ?? 0x00ffff;
+    renderer.heldOutlineMaterial.color.setHex(heldOutlineColor);
+    renderer.heldOutlineMaterial.opacity = get('chamsHeldOutlineOpacity') ?? 1;
+    renderer.U.uChamsHandOutlineColor.value.set(((get('chamsHandOutlineColor') ?? 0x00ffff) >> 16 & 255) / 255,
+      ((get('chamsHandOutlineColor') ?? 0x00ffff) >> 8 & 255) / 255, ((get('chamsHandOutlineColor') ?? 0x00ffff) & 255) / 255);
+    renderer.U.uChamsHandOutlineOpacity.value = get('chamsHandOutlineOpacity') ?? 1;
+    renderer.U.uChamsHandOutlineWidth.value = get('chamsHandOutlineWidth') ?? 2;
+    renderer.setChamsOutline(get('chamsOutlineEnabled') === true);
+    renderer.updateChamsMaterials();
+    renderer.updateChamsOutlineSettings();
+    renderer.refreshFastLoadMarkers();
+  };
+  syncModSettings();
   const overlay = new Overlay(renderer.U, manifest);
   renderer.overlay = overlay;
   // every shader set compiling now, in the background, so the title's first frame does not stop to build them
@@ -474,6 +681,10 @@ async function boot() {
     // the game menu's Advancements button (js/adv) and Statistics (js/stats.js)
     advancements: () => openAdvancements(),
     statistics: () => openStatistics(gui, icons),
+    autoOffhandItems: () => ITEMS.map((item, id) => item ? id : 0).filter(id => id > 0),
+    autoOffhandStatus: profileIndex => game && game.autoOffhand
+      ? game.autoOffhand.profileStatus(profileIndex, game, gui)
+      : { text: 'Waiting for world', working: false, missing: false },
   };
   const gui = new Gui($('#gui'), { base: base + 'gui/', options, hooks, version: TEX_V });
   // the minimap (ui/minimap.js): its own small canvas under the GUI's, drawn each frame you play
@@ -565,8 +776,8 @@ async function boot() {
      renderer is up. Then startMenu waits for the ground round it. */
   async function makeMenu(seed) {
     const world = new World({
-      seed, renderDist: Math.min(RD, 6), manifest, colours, ...video.worldOpts(),
-      onMesh: (cx, cz, mesh, urgent) => { if (rendererUp) renderer.setColumn(cx, cz, mesh, urgent); else early.set(cx + ',' + cz, [cx, cz, mesh]); },
+      seed, renderDist: Math.min(RD, 6), manifest, colours, ...video.worldOpts(), xray: options.get('xrayEnabled') === true && options.get('xrayOres') !== false,
+      onMesh: (cx, cz, mesh, urgent, loadMs, previouslyLoaded) => { if (rendererUp) renderer.setColumn(cx, cz, mesh, urgent, loadMs, previouslyLoaded); else early.set(cx + ',' + cz, [cx, cz, mesh, loadMs, previouslyLoaded]); },
       onDrop: (cx, cz) => { if (rendererUp) renderer.dropColumn(cx, cz); else early.delete(cx + ',' + cz); },
     });
     world.allHands = true;            // nothing is ever edited in it: every worker makes it
@@ -591,7 +802,7 @@ async function boot() {
     await (menuStart || (menuStart = makeMenu(seed)));
     const world = menu.world;
     rendererUp = true;
-    for (const [cx, cz, mesh] of early.values()) renderer.setColumn(cx, cz, mesh);
+    for (const [cx, cz, mesh, loadMs, previouslyLoaded] of early.values()) renderer.setColumn(cx, cz, mesh, false, loadMs, previouslyLoaded);
     early.clear();
     // the ground round it first, so the title never opens on an empty sky (focus, from makeMenu)
     await new Promise(res => {
@@ -671,6 +882,8 @@ async function boot() {
      with the server; with none, or one it no longer takes, the login screen
      comes up over the title before anything can be played (ui/account.js).
      With no answer, a kept session stands for singleplayer. */
+  // (and your skin and cape kept with the account: net/looksync.js)
+  startLookSync(options);
   Account.check().then(ok => {
     if (ok || resumeTo || resumeMp) return;
     const top = gui.screen;
@@ -708,8 +921,8 @@ async function boot() {
       // made at once, so the workers set up its generator while what changed in it is read
       if (menu) dropWorld(menu.world);
       world = new World({
-        seed, generator, dim, structures: entry.structures !== false, lc1: entry.lc1 || null, renderDist: renderer.opts.renderDist || RD, manifest, colours, ...video.worldOpts(), edits: new Map(), save: saves[dim], fresh: !!isNew,
-        onMesh: (cx, cz, mesh, urgent) => renderer.setColumn(cx, cz, mesh, urgent),
+        seed, generator, dim, structures: entry.structures !== false, lc1: entry.lc1 || null, renderDist: renderer.opts.renderDist || RD, manifest, colours, ...video.worldOpts(), xray: options.get('xrayEnabled') === true && options.get('xrayOres') !== false, edits: new Map(), save: saves[dim], fresh: !!isNew,
+        onMesh: (cx, cz, mesh, urgent, loadMs, previouslyLoaded) => renderer.setColumn(cx, cz, mesh, urgent, loadMs, previouslyLoaded),
         onDrop: (cx, cz) => renderer.dropColumn(cx, cz),
       });
     }
@@ -778,9 +991,19 @@ async function boot() {
     const hands = new Hands({ world, player, inv, survival, drops: null, containers: null, fluids, gui, icons, mode, renderer, inter: null, open: s => openScreen(s) });
     if (st && st.hands) hands.fromJSON(st.hands);
     const inter = new Interactor({
-      world, player, fluids, renderer, overlay,
+      world, player, fluids, renderer, overlay, options,
       hand: hands.adapter(renderer),
       onSplash: (x, z) => renderer.inter.splash(x, z, 0.8, 2.0),
+    });
+    const reduction = Math.max(0, Math.min(1, Number(options.get('fastPlaceDelayReduction')) || 0));
+    const baseInterval = Math.max(50, Math.min(500, Number(options.get('fastPlaceUpdateInterval')) || 200));
+    inter.configureRapidPlacement({
+      enabled: options.get('fastPlaceEnabled') === true,
+      updateIntervalMs: Math.max(50, baseInterval * (1 - reduction)),
+      tickPlacementCap: options.get('fastPlaceTickCap') ?? 4,
+      velocityLeadTicks: (options.get('fastPlaceVelocityOffset') ?? 0) * 4,
+      alignmentCorrection: options.get('fastPlaceAlignmentCorrection') === true,
+      blocksOnly: options.get('fastPlaceBlocksOnly') !== false,
     });
     inter.creative = mode === 'creative';
     inter.adventure = mode === 'adventure' || mode === 'spectator';
@@ -802,6 +1025,9 @@ async function boot() {
       mendingRepair: n => hands.mend(n),
     };
     game = { entry, world, player, fluids, inv, survival, inter, save, saves, dim, mode, spawn, time: st && st.time !== undefined ? st.time : 1500, saveT: 0, hands, collector,
+      autoArmor: new AutoArmor(options),
+      autoOffhand: new AutoOffhand(options),
+      autoTarget: new AutoTarget(options),
       // your /sethome homes in this world (commands.js; on a server the server keeps them)
       homes: st && st.homes && typeof st.homes === 'object' && !Array.isArray(st.homes) ? st.homes : {} };
     // FOV, FOV Effects and View Bobbing as set in Options, from the first frame
@@ -841,13 +1067,15 @@ async function boot() {
           // screens and spilled stacks (a chest boat's chest)
           hands,
           // the dragon from a spawn egg flies with the End's own (dim/realms.js); commands, for a command block minecart
-          realms: () => game && game.realms, commandCtx: () => (game ? chatCtx() : null) } });
+          realms: () => game && game.realms, commandCtx: () => (game ? chatCtx() : null),
+          isSinglePlayer: () => !g.entry.mp && !g.net && !g.lan } });
       entities.fromJSON(isNew && !g.partsDim ? null : await EntityStore.load(entityKey(g.entry, d)));
       renderer.scene.add(entities.group);
       const sim = new Sim({ world: w, fluids: fl, player, inv, renderer, gui, game: g });
       if (keep.sim) sim.fromJSON(keep.sim);
       // sign text and the food on campfires (details.js)
-      const details = new Details({ world: w, drops, renderer, gui });
+      const details = new Details({ world: w, drops, renderer, gui, options });
+      entities.details = details;
       if (!isNew || g.partsDim) { try { const dd = await g.saves[d].readExtra('details'); if (dd) details.fromJSON(dd); } catch (e) {} }
       details.showAll();
       details.onEdit = (x, y, z, front) => editSign(x, y, z, front);
@@ -904,7 +1132,7 @@ async function boot() {
     inv.drawMob = (g, x, y, w, h, mx, my, mob, size, drop) => renderer.figure.draw(g, x, y, w, h, mx, my, mob, size, drop);
     held();
     // a new world made with Bonus Chest on (bonus.js)
-    if (isNew && entry.bonusChest && dim === 'overworld') import('./bonus.js?v=117').then(m => m.bonusChest(game, Math.floor(spawn.x), Math.floor(spawn.z))).catch(e => console.warn('bonus chest', e));
+    if (isNew && entry.bonusChest && dim === 'overworld') import('./bonus.js?v=118').then(m => m.bonusChest(game, Math.floor(spawn.x), Math.floor(spawn.z))).catch(e => console.warn('bonus chest', e));
     Worlds.update(entry.id, { lastPlayed: Date.now(), spawn });
     // (the loading screen stays up over plain dirt for the first frames: below)
     gui.panorama = false;
@@ -1034,8 +1262,8 @@ async function boot() {
         // made first, so the workers set up its generator while what changed there is read
         world = new World({
           seed: worldSeed(g.entry), generator: genOf(g.entry), dim, structures: g.entry.structures !== false, lc1: g.entry.lc1 || null,
-          renderDist: renderer.opts.renderDist || RD, manifest, colours, ...video.worldOpts(), edits: new Map(), save,
-          onMesh: (cx, cz, mesh, urgent) => renderer.setColumn(cx, cz, mesh, urgent),
+          renderDist: renderer.opts.renderDist || RD, manifest, colours, ...video.worldOpts(), xray: options.get('xrayEnabled') === true && options.get('xrayOres') !== false, edits: new Map(), save,
+          onMesh: (cx, cz, mesh, urgent, loadMs, previouslyLoaded) => renderer.setColumn(cx, cz, mesh, urgent, loadMs, previouslyLoaded),
           onDrop: (cx, cz) => renderer.dropColumn(cx, cz),
         });
         world.edits = await save.loadEdits();
@@ -1345,6 +1573,18 @@ async function boot() {
   let showDebug = false, f3Held = false, f3Combo = false, timeRuns = true, autoScale = options.get('renderScale') === 'auto' && !params.get('scale');
   // a key bound to Attack/Destroy or Use Item/Place Block (G and H by default, as second keys) is that mouse button, held to keep going
   const KEY_BUTTON = { attack: 0, use: 2 }, keyButtons = new Map();
+  const MOD_TOGGLES = {
+    modMinimap: 'minimap',
+    modPlayerOutline: 'playerOutlineEnabled',
+    modPlayerTags: 'playerTagsEnabled',
+    modBlockHighlights: 'blockHighlightsEnabled',
+    modDropHighlights: 'dropHighlightsEnabled',
+    modChunkMarkers: 'fastLoadMarkers',
+    modXray: 'xrayEnabled',
+    modChams: 'chamsEnabled',
+    modAutoOffhand: 'autoOffhandEnabled',
+    modAutoTarget: 'autoTargetEnabled',
+  };
   // F (Swap Hands) held with 1 to 9 is F1 to F9, pressed and let go; F alone, let go with no number, still swaps hands
   let fHeld = false, fCombo = false;
   const fKey = n => { const code = 'F' + n, fake = { code, key: code, repeat: false, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, preventDefault() {} }; onKeyDown(fake); onKeyUp(fake); };
@@ -1400,6 +1640,12 @@ async function boot() {
       return;
     }
     if (!locked()) return;
+    const modOption = MOD_TOGGLES[a];
+    if (modOption) {
+      if (!e.repeat) options.set(modOption, !options.get(modOption));
+      e.preventDefault();
+      return;
+    }
     /* Esc reaches the page only in fullscreen, where the game keeps it (ui/menus.js setFullscreen):
        the game menu, with the mouse let go by the game itself, so Back to Game or Esc again takes
        it back at once, as in the game. */
@@ -1476,13 +1722,19 @@ async function boot() {
   };
   options.onChange((k, v) => {
     applyOptions();
+    syncModSettings();
+    if (k === 'xrayEnabled' || k === 'xrayOres') {
+      const xray = options.get('xrayEnabled') === true && options.get('xrayOres') !== false;
+      if (game && game.world && typeof game.world.setMeshing === 'function') game.world.setMeshing({ xray });
+      if (menu && menu.world && menu.world !== (game && game.world) && typeof menu.world.setMeshing === 'function') menu.world.setMeshing({ xray });
+    }
     if (k === 'renderDistance' && v) { if (game) game.world.renderDist = v; renderer.opts.renderDist = v; }
     if (k === 'brightness') renderer.opts.brightness = v;
     // the difficulty button changes the world you are in
     if (k === 'difficulty' && game && v && game.entry.difficulty !== v) { game.entry.difficulty = v; Worlds.update(game.entry.id, { difficulty: v }); }
     if (k === 'clouds') renderer.opts.clouds = v;
     if (k === 'renderScale') { autoScale = v === 'auto'; if (v !== 'auto') { renderer.opts.scale = +v; fit(); } }
-    if (k === 'skin') setSkin(v === 'default' ? new URL('../textures/skin/default.png?v=117', import.meta.url).href : v);
+    if (k === 'skin') setSkin(v === 'default' ? new URL('../textures/skin/default.png?v=118', import.meta.url).href : v);
     if (k === 'skinParts' && v) for (const p in v) setSkinPart(p, v[p]);
     if (k === 'cape') setCape(v || '');
   });
@@ -1634,6 +1886,9 @@ async function boot() {
       statsTick(g); recipesTick(g);
       // on a server: where you are, and what came in from the others (net/net.js)
       if (g.net) g.net.tick(now - acc * 1000);
+      if (g.autoArmor) g.autoArmor.tick(g, gui, performance.now());
+      if (g.autoOffhand) g.autoOffhand.tick(g, gui, performance.now());
+      if (g.autoTarget) g.autoTarget.tick(g, gui);
       // every ten seconds, what changed goes into the browser's storage
       if (++g.saveT >= 200) { g.saveT = 0; saveGame(); }
       g.tickMs = (g.tickMs || 0) * 0.95 + (performance.now() - tick0) * 0.05;
@@ -1667,11 +1922,55 @@ async function boot() {
       const eyeBlock = world.get(Math.floor(v.eye.x), Math.floor(v.eye.y), Math.floor(v.eye.z));
       // (swimming presses the sea's plants aside too, RIP Computer's kelp and seagrass)
       const onGrass = (player.onGround || player.inWater) && !player.flying;
+      const tracerFrame = { playerPosition: v.eye, entities: [] };
+      player.jukeboxDance = g.details ? g.details.danceAt(v.feet.x, v.feet.y, v.feet.z) : null;
+      if (options.get('tracerEnabled') === true) {
+        const entityAlpha = Math.max(0, Math.min(1, alpha));
+        for (const e of g.entities ? g.entities.list : []) {
+          if (!Number.isFinite(e.maxHealth) || e.removed || !e.pos) continue;
+          tracerFrame.entities.push({
+            id: e,
+            type: 'mob',
+            isMob: true,
+            isActive: true,
+            alive: !e.dead,
+            dead: !!e.dead,
+            position: {
+              x: e.prev.x + (e.pos.x - e.prev.x) * entityAlpha,
+              y: e.prev.y + (e.pos.y - e.prev.y) * entityAlpha + (e.h || 1) * 0.5,
+              z: e.prev.z + (e.pos.z - e.prev.z) * entityAlpha,
+            },
+            health: e.health,
+            maxHealth: e.maxHealth,
+          });
+        }
+        if (g.net && g.net.players && typeof g.net.dimNow === 'function') {
+          const dimension = g.net.dimNow();
+          for (const r of g.net.players.list.values()) {
+            if (!r.feet || !r.st || r.st.d !== dimension || r.invis || r.hid || r.deadAt) continue;
+            const teammate = typeof r.rank === 'string' && r.rank.startsWith('team:');
+            tracerFrame.entities.push({
+              id: r.id,
+              type: teammate ? 'teammate' : 'player',
+              isPlayer: true,
+              isTeammate: teammate,
+              isActive: true,
+              position: { x: r.feet.x, y: r.feet.y + 0.9, z: r.feet.z },
+              health: r.eq && r.eq.hp,
+              maxHealth: r.eq && r.eq.hm,
+            });
+          }
+        }
+        tracerFrame.isLineOfSightClear = (entity, from, to) =>
+          options.get('tracerLineOfSight') === false || tracerLineOfSight(world, from, to);
+        tracerFrame.lockedOnId = options.get('tracerLockOn') === true ? inter.entityTarget : null;
+      }
       renderer.render({
         time: (g.time + alpha) / 20, sunDir, moonDir, feet: v.feet, eye: v.eye, yaw: player.yaw, pitch: player.pitch,
         fov: v.fov * (g.entities ? g.entities.combat.fovScale(alpha) : 1) * zoomF, eyeInWater: FLUID[eyeBlock] === 1 || player.eyeInWater, skyAtEye: skyAt(world, v.eye),
         moonPhase: Math.floor(g.time / 24000) % 8, trample: onGrass ? 1 : 0, showHand: !gui.hideHud && !scoped && g.mode !== 'spectator' && !g.noHand, bob: g.hands.handBob(v.handBob),
         waterTint: tintAt(world, v.eye), player, alpha, effects: survival.effects,
+        tracerFrame,
         // hurt: the camera tilts and the model flashes red (combat/combat.js)
         tilt: g.entities && (g.mode === 'survival' || g.mode === 'adventure') ? g.entities.combat.tilt(alpha, video.tilt()) : null, hurt: !!(g.entities && g.entities.combat.hurtFlash()),
         biome: BIOMES[world.biomeAt(Math.floor(v.eye.x), Math.floor(v.eye.z))], eyeInLava: FLUID[eyeBlock] === 2, eyeInSnow: eyeBlock === B.powder_snow,
@@ -1753,7 +2052,7 @@ async function boot() {
     renderer, gui, options, B, BLOCKS, video, minimap,
     get game() { return game; }, get world() { return game ? game.world : menu && menu.world; }, get player() { return game && game.player; },
     get fluids() { return game && game.fluids; }, get inv() { return game && game.inv; }, hud, chat, cheats: false,
-    command: line => { if (!game) return false; const ctx = chatCtx(); if (!game.net || LOCAL_PAGE) ctx.cheats = true; return import('./commands.js?v=117').then(m => m.execute(line, ctx)); },
+    command: line => { if (!game) return false; const ctx = chatCtx(); if (!game.net || LOCAL_PAGE) ctx.cheats = true; return import('./commands.js?v=118').then(m => m.execute(line, ctx)); },
     get drops() { return game && game.drops; }, get containers() { return game && game.containers; }, get hands() { return game && game.hands; },
     get survival() { return game && game.survival; },
     get enchanting() { return game && enchantDebug(game); },

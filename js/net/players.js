@@ -18,7 +18,8 @@
    name, as the game draws it: white on a faint dark band, with both layers
    hidden behind blocks; only the faint one while they sneak, none past 64
    blocks. Nothing is drawn of a player in another dimension or out of sight
-   range.
+   range. A red outline is also drawn through walls around every player whose
+   position is known, including beyond the render distance.
 
    A rank tag goes before the name, as servers show one: [ADMIN] in red for
    an admin account, [OWNER] in gold for the server's owner (rankTag). The
@@ -28,12 +29,12 @@
    letter, [BUILDER]) the role still shows in the Tab list and in chat, and
    the game's tag alone over the head (headTag).
 --------------------------------------------------------------------------- */
-import { Avatar, invisLook } from '../render/avatar.js?v=117';
-import { pieceLook, armorSheet } from '../render/armor.js?v=117';
-import { setLight as setLightOf, loadedLook, pulledLook } from '../render/held.js?v=117';
-import { DRAW, I, stackFromJSON } from '../items.js?v=117';
-import { B, BLOCKS } from '../blocks.js?v=117';
-import { walkers } from '../render/realism.js?v=117';
+import { Avatar, invisLook } from '../render/avatar.js?v=118';
+import { pieceLook, armorSheet } from '../render/armor.js?v=118';
+import { setLight as setLightOf, loadedLook, pulledLook } from '../render/held.js?v=118';
+import { DRAW, I, stackFromJSON, displayName } from '../items.js?v=118';
+import { B, BLOCKS, FLUID } from '../blocks.js?v=118';
+import { walkers } from '../render/realism.js?v=118';
 const THREE = window.THREE;
 
 const DELAY = 100;          // ms behind the newest position, at the least
@@ -42,6 +43,100 @@ const KEEP = 1500;          // ms of positions kept
 const PI = Math.PI;
 const wrap = a => a - 2 * PI * Math.round(a / (2 * PI));
 const idOf = name => !name ? 0 : (I[name] !== undefined ? I[name] : B[name] !== undefined ? B[name] : 0);
+export const PLAYER_NAMEPLATE_OPTIONS = Object.freeze({
+  fontScale: Object.freeze({ key: 'playerNameplateFontScale', default: 1, min: 0.5, max: 2 }),
+  opacity: Object.freeze({ key: 'playerNameplateOpacity', default: 1, min: 0, max: 1 }),
+  backdropOpacity: Object.freeze({ key: 'playerNameplateBackdropOpacity', default: 0.25, min: 0, max: 1 }),
+  equipmentLayout: Object.freeze({ key: 'playerNameplateEquipmentLayout', default: 'inline', values: ['inline', 'stacked', 'hidden'] }),
+  equipmentDetail: Object.freeze({ key: 'playerNameplateEquipmentDetail', default: 'names', values: ['names', 'armor', 'full'] }),
+  enchantTiers: Object.freeze({ key: 'playerNameplateEnchantTiers', default: false }),
+  distanceScale: Object.freeze({ key: 'playerNameplateDistanceScale', default: false }),
+  latency: Object.freeze({ key: 'playerNameplateLatency', default: false }),
+  teamColor: Object.freeze({ key: 'playerNameplateTeamColor', default: true }),
+  occlusionMemory: Object.freeze({ key: 'playerNameplateOcclusionMemory', default: 0, min: 0, max: 500 }),
+});
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+function getOption(options, name, fallback) {
+  const key = PLAYER_NAMEPLATE_OPTIONS[name].key;
+  const value = options && (typeof options.get === 'function' ? options.get(key) : options[key]);
+  return value === undefined || value === null ? fallback : value;
+}
+function nameplateSettings(options) {
+  const numeric = (name, fallback, min, max) => {
+    const value = Number(getOption(options, name, fallback));
+    return Number.isFinite(value) ? clamp(value, min, max) : fallback;
+  };
+  const layout = getOption(options, 'equipmentLayout', 'inline');
+  const detail = getOption(options, 'equipmentDetail', 'names');
+  return {
+    fontScale: numeric('fontScale', 1, 0.5, 2),
+    opacity: numeric('opacity', 1, 0, 1),
+    backdropOpacity: numeric('backdropOpacity', 0.25, 0, 1),
+    equipmentLayout: ['inline', 'stacked', 'hidden'].includes(layout) ? layout : 'inline',
+    equipmentDetail: ['names', 'armor', 'full'].includes(detail) ? detail : 'names',
+    enchantTiers: !!getOption(options, 'enchantTiers', false),
+    distanceScale: !!getOption(options, 'distanceScale', false),
+    latency: !!getOption(options, 'latency', false),
+    teamColor: !!getOption(options, 'teamColor', true),
+    occlusionMemory: numeric('occlusionMemory', 0, 0, 500),
+    showHealth: !options || (typeof options.get === 'function' ? options.get('playerTagHealth') : options.playerTagHealth) !== false,
+    showHunger: !options || (typeof options.get === 'function' ? options.get('playerTagHunger') : options.playerTagHunger) !== false,
+    showArmor: !options || (typeof options.get === 'function' ? options.get('playerTagArmor') : options.playerTagArmor) !== false,
+    showItems: !options || (typeof options.get === 'function' ? options.get('playerTagItems') : options.playerTagItems) !== false,
+  };
+}
+function teamColoredNameTag(rank, enabled) {
+  const tag = headTag(rank);
+  return enabled ? tag : tag.replace(/§[0-9a-f]$/i, '§r');
+}
+function tierOf(stack) {
+  if (!stack || !stack.ench) return 0;
+  let max = 0;
+  for (const level of Object.values(stack.ench)) max = Math.max(max, Number(level) || 0);
+  return max > 0 ? Math.min(5, max) : 0;
+}
+function armorSummary(eq, detail, showTiers) {
+  if (!eq || !Array.isArray(eq.a)) return '';
+  const names = ['H', 'C', 'L', 'B'], colors = ['§7', '§a', '§b', '§d', '§6'];
+  const parts = [];
+  for (let i = 0; i < 4; i++) {
+    const stack = stackFromJSON(eq.a[i]);
+    if (!stack) continue;
+    const tier = (detail === 'full' || showTiers) ? tierOf(stack) : 0;
+    let part = names[i] + ': ';
+    if (detail === 'armor' || detail === 'full') part += displayName(stack.id);
+    if (tier) part += (detail === 'armor' || detail === 'full' ? ' ' : '') + colors[tier - 1] + ['I', 'II', 'III', 'IV', 'V'][tier - 1] + '§r';
+    if (part !== names[i] + ': ') parts.push(part);
+  }
+  return parts.join('  ');
+}
+// Conservative voxel visibility test. Unknown/unloaded cells are not considered visible.
+function nameplateLineOfSight(world, from, to) {
+  if (!world || typeof world.get !== 'function') return null;
+  let x = Math.floor(from.x), y = Math.floor(from.y), z = Math.floor(from.z);
+  const endX = Math.floor(to.x), endY = Math.floor(to.y), endZ = Math.floor(to.z);
+  const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
+  const sx = Math.sign(dx), sy = Math.sign(dy), sz = Math.sign(dz);
+  const tx = dx ? Math.abs(1 / dx) : Infinity, ty = dy ? Math.abs(1 / dy) : Infinity, tz = dz ? Math.abs(1 / dz) : Infinity;
+  let mx = dx > 0 ? (x + 1 - from.x) / dx : dx < 0 ? (from.x - x) / -dx : Infinity;
+  let my = dy > 0 ? (y + 1 - from.y) / dy : dy < 0 ? (from.y - y) / -dy : Infinity;
+  let mz = dz > 0 ? (z + 1 - from.z) / dz : dz < 0 ? (from.z - z) / -dz : Infinity;
+  for (let steps = 0; steps < 512; steps++) {
+    if (typeof world.loaded === 'function' && !world.loaded(x, z)) return null;
+    if (x !== endX || y !== endY || z !== endZ) {
+      let id;
+      try { id = world.get(x, y, z); } catch (e) { return null; }
+      if (id === undefined || id === null) return null;
+      const block = BLOCKS[id];
+      if (FLUID[id] || (block && block.solid && block.pass === 'opaque')) return false;
+    }
+    if (x === endX && y === endY && z === endZ) return true;
+    if (mx <= my && mx <= mz) { x += sx; mx += tx; }
+    else if (my <= mz) { y += sy; my += ty; }
+    else { z += sz; mz += tz; }
+  }
+  return null;
+}
 // the rank tag before a name, in colour codes (the name after it goes back to the line's own colour)
 const RANKS = { netowner: '\u00a7c[OWNER] \u00a7r', admin: '\u00a7c[ADMIN] \u00a7r', mod: '\u00a72[MOD] \u00a7r', owner: '\u00a76[OWNER] \u00a7r', builder: '\u00a7b[BUILDER] \u00a7r' };   // (builder: Leon Network's, the maker of the map being played and their building team)
 // (Leon Network's team tag, 'team:<colour code>:<letter>': the letter in bold and the name in the team's colour)
@@ -77,6 +172,52 @@ export const USE_KINDS = ['eat', 'drink', 'horn', 'bow', 'aim', 'crossbow', 'blo
 const SEAT = { yaw: 0 };
 // a bed's facing bits (sim/beds.js): north, east, south, west, the way from its foot to its head
 const BED_DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+const OUTLINE_VS = `uniform mat4 modelMatrix, viewMatrix, projectionMatrix;
+uniform vec2 uViewport;
+uniform float uWidth;
+in vec3 aStart, aEnd;
+in vec2 aCorner;
+void main() {
+  vec3 start = (modelMatrix * vec4(aStart, 1.0)).xyz;
+  vec3 end = (modelMatrix * vec4(aEnd, 1.0)).xyz;
+  vec4 a = projectionMatrix * vec4(mat3(viewMatrix) * start, 1.0);
+  vec4 b = projectionMatrix * vec4(mat3(viewMatrix) * end, 1.0);
+  if (a.w <= 0.0 && b.w <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+  vec2 direction = (b.xy / b.w - a.xy / a.w) * uViewport;
+  float lengthPx = length(direction);
+  vec2 normal = lengthPx > 0.0 ? vec2(-direction.y, direction.x) / lengthPx : vec2(0.0, 1.0);
+  vec4 clip = mix(a, b, aCorner.x);
+  clip.xy += normal * (uWidth / uViewport) * aCorner.y * clip.w;
+  if (clip.w > 0.0) clip.z = min(clip.z, clip.w * 0.99999);
+  gl_Position = clip;
+}`;
+const OUTLINE_FS = `uniform vec3 uColor;
+uniform float uOpacity;
+out vec4 outColor;
+void main() { outColor = vec4(uColor, uOpacity); }`;
+
+function outlineGeometry() {
+  const box = new THREE.BoxGeometry(0.82, 1.92, 0.82);
+  const edges = new THREE.EdgesGeometry(box), source = edges.attributes.position.array;
+  box.dispose();
+  edges.dispose();
+  const starts = [], ends = [], corners = [], indices = [];
+  for (let i = 0; i < source.length; i += 6) {
+    const vertex = starts.length / 3;
+    for (let j = 0; j < 4; j++) {
+      starts.push(source[i], source[i + 1], source[i + 2]);
+      ends.push(source[i + 3], source[i + 4], source[i + 5]);
+    }
+    corners.push(0, -1, 0, 1, 1, -1, 1, 1);
+    indices.push(vertex, vertex + 1, vertex + 2, vertex + 2, vertex + 1, vertex + 3);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('aStart', new THREE.Float32BufferAttribute(starts, 3));
+  geometry.setAttribute('aEnd', new THREE.Float32BufferAttribute(ends, 3));
+  geometry.setAttribute('aCorner', new THREE.Float32BufferAttribute(corners, 2));
+  geometry.setIndex(indices);
+  return geometry;
+}
 
 // everyone else's size here (Leon Network's Chameleon plays at half size: net/hub.js sets it; its seekers, in full, stay full size)
 export const playerSize = { k: 1, full: new Set(), of(id) { return this.full.has(id) ? 1 : this.k; } };
@@ -84,10 +225,26 @@ export const playerSize = { k: 1, full: new Set(), of(id) { return this.full.has
 export const nameRule = { hidden: false };
 
 export class RemotePlayers {
-  constructor(renderer, font) {
+  constructor(renderer, font, options = null) {
     this.R = renderer; this.font = font;
+    this.options = options;
     this.list = new Map();          // id -> remote player
     this.group = new THREE.Group(); this.group.name = 'players';
+    this.outlineGeometry = outlineGeometry();
+    this.outlineViewport = new THREE.Vector2(1, 1);
+    this.outlineMaterial = new THREE.RawShaderMaterial({
+      glslVersion: THREE.GLSL3, vertexShader: OUTLINE_VS, fragmentShader: OUTLINE_FS,
+      uniforms: {
+        uViewport: { value: this.outlineViewport }, uWidth: { value: 3 },
+        uColor: { value: new THREE.Color(0x00ff00) }, uOpacity: { value: 1 },
+      },
+      side: THREE.DoubleSide, depthTest: false, depthWrite: false, transparent: true, toneMapped: false,
+    });
+    const spotBox = new THREE.BoxGeometry(0.8, 1.8, 0.8);
+    this.logoutGeometry = new THREE.EdgesGeometry(spotBox);
+    spotBox.dispose();
+    this.logoutMaterial = new THREE.LineBasicMaterial({ color: 0xffff00, depthTest: false, depthWrite: false, toneMapped: false });
+    this.logoutSpots = new Map();
     renderer.scene.add(this.group);
     // the name tags' shader built now, in the background, not in the frame the first player comes into view
     try {
@@ -100,16 +257,29 @@ export class RemotePlayers {
   dispose() {
     for (const r of this.list.values()) this.drop(r);
     this.list.clear();
+    for (const id of this.logoutSpots.keys()) this.clearLogout(id);
+    this.logoutGeometry.dispose();
+    this.logoutMaterial.dispose();
+    this.outlineGeometry.dispose();
+    this.outlineMaterial.dispose();
     if (this.group.parent) this.group.parent.remove(this.group);
   }
 
   /* ---- what the server says ---- */
   add(p) {
+    this.clearLogout(p.id);
     if (this.list.has(p.id)) this.remove(p.id);
     const r = { id: p.id, name: p.name, rank: p.tag || '', buf: [], est: null, estS: null, win: Infinity, winPrev: Infinity, winAt: 0, late: 0, lateMax: 0, delay: DELAY,
-      av: null, P: null, acc: 0, eq: null, tag: null, hurtUntil: 0, st: null, lat: p.lat | 0,
+      av: null, P: null, acc: 0, eq: null, tag: null, hurtUntil: 0, st: null,
+      lat: p.lat !== null && p.lat !== undefined && Number.isFinite(Number(p.lat)) ? Number(p.lat) : -1,
+      lastTagSeenAt: 0, lastTagPosition: null, lastTagSneaking: false, losCheckedAt: -Infinity, losTarget: null, losEye: null, lineOfSight: null,
       // (another admin who joined hidden: the server tells only the other hidden players of them, marked so)
       hid: !!p.hid };
+    r.outline = new THREE.Mesh(this.outlineGeometry, this.outlineMaterial);
+    r.outline.frustumCulled = false;
+    r.outline.renderOrder = 100000;
+    r.outline.visible = false;
+    this.group.add(r.outline);
     this.list.set(p.id, r);
     if (p.st) this.state(p.id, p.st, null);
     // (dead already when you came: no dying to watch)
@@ -119,7 +289,47 @@ export class RemotePlayers {
     return r;
   }
   remove(id) { const r = this.list.get(id); if (r) { this.drop(r); this.list.delete(id); } }
+  markLogout(id, dimCode) {
+    const r = this.list.get(id), s = r && r.st;
+    if (!r || !s || s.d !== dimCode || ![s.x, s.y, s.z].every(Number.isFinite)) return;
+    this.clearLogout(id);
+    const spot = new THREE.Group();
+    const outline = new THREE.LineSegments(this.logoutGeometry, this.logoutMaterial);
+    outline.position.set(s.x, s.y + 0.9, s.z);
+    outline.frustumCulled = false;
+    outline.renderOrder = 1000;
+    spot.add(outline);
+    const canvas = document.createElement('canvas');
+    canvas.width = 512; canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    ctx.font = 'bold 32px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 6; ctx.strokeStyle = '#171300'; ctx.fillStyle = '#ffffff';
+    const label = r.name + ' logged out';
+    ctx.strokeText(label, canvas.width / 2, canvas.height / 2);
+    ctx.fillText(label, canvas.width / 2, canvas.height / 2);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false, fog: false, toneMapped: false });
+    const text = new THREE.Sprite(material);
+    text.position.set(s.x, s.y + 2.15, s.z);
+    text.scale.set(Math.max(2, label.length * 0.12), 0.32, 1);
+    text.frustumCulled = false;
+    text.renderOrder = 1001;
+    spot.add(text);
+    this.group.add(spot);
+    this.logoutSpots.set(id, { spot, text, dim: s.d, cx: Math.floor(s.x / 16), cz: Math.floor(s.z / 16), texture, material });
+  }
+  clearLogout(id) {
+    const marker = this.logoutSpots.get(id);
+    if (!marker) return;
+    this.group.remove(marker.spot);
+    marker.texture.dispose();
+    marker.material.dispose();
+    this.logoutSpots.delete(id);
+  }
   drop(r) {
+    this.group.remove(r.outline);
     if (r.av) {
       const av = r.av, R = this.R;
       for (const m of [av.mesh, av.armor, av.glowRim, av.glowBehind]) { R.scene.remove(m); }
@@ -163,11 +373,22 @@ export class RemotePlayers {
     if (late > r.late) r.late = late;
   }
   setSkin(id, skin, slim, cape) { const r = this.list.get(id); if (!r) return; r.skinUrl = skin || ''; r.slim = !!slim; r.capeUrl = cape || ''; if (r.av) this.skinOf(r); }
-  setEquip(id, eq) { const r = this.list.get(id); if (!r) return; r.eq = eq; if (r.av) this.equip(r); }
+  setLatency(id, latency) {
+    const r = this.list.get(id);
+    if (!r) return;
+    const value = Number(latency);
+    r.lat = Number.isFinite(value) ? value : -1;
+  }
+  setEquip(id, eq) {
+    const r = this.list.get(id);
+    if (!r) return;
+    r.eq = eq;
+    if (r.av) this.equip(r);
+  }
   swing(id, hand) { const r = this.list.get(id); if (r && r.av && !hand) r.av.startSwing(); }
   hurt(id) { const r = this.list.get(id); if (r) r.hurtUntil = performance.now() + 500; }
-  rename(id, name) { const r = this.list.get(id); if (r && r.name !== name) { r.name = name; if (r.tag) this.dropTag(r); } }
-  setTag(id, tag) { const r = this.list.get(id); if (r && r.rank !== tag) { r.rank = tag; if (r.tag) this.dropTag(r); } }
+  rename(id, name) { const r = this.list.get(id); if (r && r.name !== name) r.name = name; }
+  setTag(id, tag) { const r = this.list.get(id); if (r && r.rank !== tag) r.rank = tag; }
 
   /* ---- the model ---- */
   avatarOf(r) {
@@ -194,7 +415,7 @@ export class RemotePlayers {
   }
   skinOf(r) {
     const av = r.av;
-    const url = r.skinUrl || new URL('../../textures/skin/default.png?v=117', import.meta.url).href;
+    const url = r.skinUrl || new URL('../../textures/skin/default.png?v=118', import.meta.url).href;
     av.setSkin(url, r.skinUrl ? r.slim : false).catch(() => {});
     av.setCape(r.capeUrl || '').catch(() => {});
   }
@@ -215,12 +436,51 @@ export class RemotePlayers {
   }
 
   /* ---- the name over their head ---- */
-  tagOf(r) {
+  tagOf(r, settings = nameplateSettings(this.options)) {
+    const showHealth = settings.showHealth, showHunger = settings.showHunger;
+    const showArmor = settings.showArmor;
+    const showItems = settings.showItems && settings.equipmentLayout !== 'hidden';
+    const includeArmor = (settings.equipmentDetail === 'armor' || settings.equipmentDetail === 'full') && settings.equipmentLayout !== 'hidden';
+    const showTiers = settings.equipmentLayout !== 'hidden' && (settings.enchantTiers || settings.equipmentDetail === 'full');
+    const name = teamColoredNameTag(r.rank, settings.teamColor) + (r.name || '') + (r.hid ? ' §3(hidden)' : '');
+    const latency = settings.latency && Number.isFinite(r.lat) && r.lat >= 0 ? ` §8[${Math.round(r.lat)}ms]§r` : '';
+    const eq = r.eq || {}, mainId = showItems ? idOf(eq.h) : 0, offId = showItems ? idOf(eq.o) : 0;
+    const main = mainId ? displayName(mainId) : '', off = offId ? displayName(offId) : '';
+    const equipment = includeArmor || showTiers ? armorSummary(eq, settings.equipmentDetail, settings.enchantTiers) : '';
+    const signature = JSON.stringify([showHealth, showHunger, showArmor, showItems, includeArmor, showTiers,
+      settings.equipmentLayout, settings.fontScale, settings.opacity, settings.backdropOpacity,
+      settings.distanceScale, settings.latency, settings.teamColor, name, latency, main, off, equipment,
+      eq.hp, eq.hm, eq.fd, eq.fm, eq.ap]);
+    if (r.tag && r.tag.signature !== signature) this.dropTag(r);
     if (r.tag) return r.tag;
-    const f = this.font, name = headTag(r.rank) + (r.name || '') + (r.hid ? ' §3(hidden)' : '');
-    const w = (f ? f.width(name) : name.length * 6) + 2, h = 10, k = 4;
+    const f = this.font;
+    const width = text => f ? f.width(text) : text.length * 6;
+    const nameW = width(name + latency), mainW = main ? width(main) : 0, offW = off ? width(off) : 0, gap = 4, barW = 48, statBarsW = barW * 2 + gap;
+    const heldW = settings.equipmentLayout === 'stacked' ? mainW + offW + (main && off ? gap : 0) : offW + mainW + barW + gap * 2;
+    const w = Math.max(50, nameW + 2, heldW + 2, statBarsW + 2, equipment ? width(equipment) + 2 : 0);
+    const h = 29 + (equipment ? 14 : 0), k = 4;
     const t = document.createElement('canvas'); t.width = w; t.height = h;
-    if (f) f.draw(t.getContext('2d'), name, 1, 1, 0xFFFFFF, false);
+    if (f) {
+      const ctx = t.getContext('2d'), nameX = Math.floor((w - nameW) / 2);
+      const center = Math.floor(w / 2);
+      if (off && settings.equipmentLayout === 'inline') f.draw(ctx, off, 1, 25, 0xD0D0D0, false);
+      f.draw(ctx, name + latency, nameX, 16, 0xFFFFFF, false);
+      if (main && settings.equipmentLayout === 'inline') f.draw(ctx, main, w - mainW - 1, 25, 0xD0D0D0, false);
+      if (settings.equipmentLayout === 'stacked') {
+        const held = [off, main].filter(Boolean).join('  ');
+        if (held) f.draw(ctx, held, Math.floor((w - width(held)) / 2), 25, 0xD0D0D0, false);
+      }
+      const healthX = center - gap / 2 - barW, hungerX = center + gap / 2;
+      const bar = (x, y, value, max, color) => {
+        if (!Number.isFinite(value) || !Number.isFinite(max) || max <= 0) return;
+        ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fillRect(x, y, barW, 4);
+        ctx.fillStyle = color; ctx.fillRect(x, y, barW * Math.max(0, Math.min(1, value / max)), 4);
+      };
+      if (showHealth) bar(healthX, 1, eq.hp, eq.hm, '#e34b4b');
+      if (showHunger) bar(hungerX, 1, eq.fd, eq.fm, '#e6a739');
+      if (showArmor) bar(center - barW / 2, 20, eq.ap, 20, '#a8d7e8');
+      if (equipment) f.draw(ctx, equipment, Math.floor((w - width(equipment)) / 2), 34, 0xD0D0D0, false);
+    }
     /* Two layers, as the game draws a name: the faint band and text, and the
        brighter text. Both are depth-tested against the world. */
     const layer = band => {
@@ -228,7 +488,7 @@ export class RemotePlayers {
       c.width = w * k; c.height = h * k;
       const g = c.getContext('2d');
       g.imageSmoothingEnabled = false;
-      if (band) { g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(0, 0, c.width, c.height); g.globalAlpha = 32 / 255; }
+      if (band) { g.fillStyle = `rgba(0,0,0,${settings.backdropOpacity})`; g.fillRect(0, 0, c.width, c.height); g.globalAlpha = 32 / 255; }
       g.drawImage(t, 0, 0, w, h, 0, 0, c.width, c.height);
       const tex = new THREE.CanvasTexture(c);
       tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false;
@@ -238,25 +498,76 @@ export class RemotePlayers {
     const mk = (tex, depth) => {
       const m = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: depth, depthWrite: false, fog: false, toneMapped: false });
       const s = new THREE.Sprite(m);
-      s.scale.set(w * 0.025, h * 0.025, 1);
+      s.scale.set(w * 0.025 * settings.fontScale, h * 0.0125 * settings.fontScale, 1);
+      m.opacity = settings.opacity;
       s.renderOrder = depth ? 10 : 9;
       s.frustumCulled = false;
       return s;
     };
     const far = mk(layer(true), true), near = mk(layer(false), true);
     this.group.add(far, near);
-    return (r.tag = { far, near, w, h });
+    return (r.tag = { far, near, w, h, signature, renderScale: settings.fontScale, opacity: settings.opacity, depthTest: true });
+  }
+  tagSight(r, world, eye, target, now) {
+    const cached = r.losTarget, cachedEye = r.losEye;
+    if (cached && now - r.losCheckedAt < 50 &&
+        cachedEye && Math.abs(eye.x - cachedEye.x) < 0.2 && Math.abs(eye.y - cachedEye.y) < 0.2 && Math.abs(eye.z - cachedEye.z) < 0.2 &&
+        Math.abs(target.x - cached.x) < 0.2 && Math.abs(target.y - cached.y) < 0.2 && Math.abs(target.z - cached.z) < 0.2) return { visible: r.lineOfSight, fresh: false };
+    r.losTarget = { x: target.x, y: target.y, z: target.z };
+    r.losEye = { x: eye.x, y: eye.y, z: eye.z };
+    r.losCheckedAt = now;
+    r.lineOfSight = nameplateLineOfSight(world, eye, target);
+    return { visible: r.lineOfSight, fresh: true };
+  }
+  tagVisual(tag, settings, opacity, depthTest, eye) {
+    const dx = tag.far.position.x - eye.x, dy = tag.far.position.y - eye.y, dz = tag.far.position.z - eye.z;
+    const factor = settings.distanceScale ? clamp(Math.sqrt(dx * dx + dy * dy + dz * dz) / 32, 0.5, 2) : 1;
+    const scale = settings.fontScale * factor;
+    if (tag.renderScale !== scale) {
+      for (const sprite of [tag.far, tag.near]) sprite.scale.set(tag.w * 0.025 * scale, tag.h * 0.0125 * scale, 1);
+      tag.renderScale = scale;
+    }
+    if (tag.depthTest !== depthTest) {
+      tag.far.material.depthTest = tag.near.material.depthTest = depthTest;
+      tag.depthTest = depthTest;
+    }
+    if (tag.opacity !== opacity) {
+      tag.far.material.opacity = tag.near.material.opacity = opacity;
+      tag.opacity = opacity;
+    }
   }
 
   /* ---- every frame: where each one is now, posed and named ---- */
-  frame(now, dt, world, dimCode, eye, maxDist, spectator) {
+  frame(now, dt, world, dimCode, eye, maxDist, spectator, logoutMarkerDistance = 256, details = null) {
+    const o = this.options;
+    const tagSettings = nameplateSettings(o);
+    const markerDistance = Math.max(0, Math.min(256, (o && o.get('logoutMarkersEnabled') === false ? 0 : logoutMarkerDistance) | 0));
+    const markerColor = o ? o.get('logoutMarkerColor') : 0xffff00;
+    const showLogoutLabels = !o || o.get('logoutMarkerLabels') !== false;
+    this.logoutMaterial.color.setHex(markerColor);
+    const playerChunkX = Math.floor(eye.x / 16), playerChunkZ = Math.floor(eye.z / 16);
+    const markerDistance2 = markerDistance * markerDistance;
+    for (const marker of this.logoutSpots.values()) {
+      const dx = marker.cx - playerChunkX, dz = marker.cz - playerChunkZ;
+      marker.spot.visible = markerDistance > 0 && marker.dim === dimCode && dx * dx + dz * dz <= markerDistance2;
+      if (marker.text) {
+        marker.text.visible = showLogoutLabels;
+        marker.text.material.color.setHex(markerColor);
+      }
+    }
+    this.R.r.getDrawingBufferSize(this.outlineViewport);
+    if (o) {
+      const uniforms = this.outlineMaterial.uniforms;
+      uniforms.uColor.value.setHex(o.get('playerOutlineColor') ?? 0x00ff00);
+      uniforms.uWidth.value = o.get('playerOutlineWidth') ?? 3;
+    }
     for (const r of this.list.values()) {
       const s = r.st;
       // (a spectator is seen only by other spectators, as in the game)
       const show = !!s && s.d === dimCode && r.buf.length > 0 && (!(s.f & F.SPEC) || spectator);
-      if (!show) { if (r.av) this.hide(r); continue; }
+      if (!show) { this.hide(r); continue; }
       const p = this.sample(r, now, dt);
-      if (!p) { if (r.av) this.hide(r); continue; }
+      if (!p) { this.hide(r); continue; }
       // sitting in a boat or minecart this machine has too: in its seat there, moving with it (net/vehicles.js)
       const seat = p.f & F.RIDE && this.seatOf ? this.seatOf(r) : null;
       if (seat) { p.x = seat.x; p.y = seat.y; p.z = seat.z; }
@@ -267,17 +578,26 @@ export class RemotePlayers {
         const ticks = (now - r.deadAt) / 50;
         if (ticks >= 20) {
           if (!r.poofed && r.av && r.av.mesh.visible && this.onPoof) { r.poofed = true; this.onPoof(p.x, p.y, p.z); }
-          if (r.av) this.hide(r);
+          this.hide(r);
           continue;
         }
         r.dying = Math.min(1, Math.sqrt(Math.max(0, ticks / 20 * 1.6)));
       } else { r.deadAt = 0; r.dying = 0; r.poofed = false; }
       const dx = p.x - eye.x, dy = p.y - eye.y, dz = p.z - eye.z, d2 = dx * dx + dy * dy + dz * dz;
-      if (d2 > maxDist * maxDist) { if (r.av) this.hide(r); continue; }
+      const beyondRenderDistance = d2 > maxDist * maxDist;
+      r.outline.position.set(p.x - eye.x, p.y + 0.9 - eye.y, p.z - eye.z);
+      const outlineDistance = o ? o.get('playerOutlineDistance') | 0 : 0;
+      r.outline.visible = (!o || o.get('playerOutlineEnabled') !== false) && (!outlineDistance || d2 <= outlineDistance * outlineDistance);
+      if (beyondRenderDistance) {
+        this.hideAvatar(r);
+        if (r.tag) r.tag.far.visible = r.tag.near.visible = false;
+        continue;
+      }
+      r.invis = !!(p.f & F.INVIS); r.glow = false;
       const av = this.avatarOf(r), P = r.P;
       P.w = world;
+      P.jukeboxDance = details ? details.danceAt(p.x, p.y, p.z, now) : null;
       P.dying = r.dying || 0;
-      r.invis = !!(p.f & F.INVIS); r.glow = !!(p.f & F.GLOW);
       P.sneaking = !!(p.f & F.SNEAK); P.flying = !!(p.f & F.FLY); P.gliding = !!(p.f & F.GLIDE); P.spinning = !!(p.f & F.SPIN);
       P.riding = p.f & F.RIDE ? (seat ? seat.v : SEAT) : null;
       P.bed = null;
@@ -324,16 +644,51 @@ export class RemotePlayers {
       this.draw(r, av, P, feet, Math.min(1, r.acc / 0.05), dt, now);
       /* the name, its top half a block over the head (lower when they sneak),
          within 64 blocks; a player sneaking shows only the faint layer */
-      const tag = this.tagOf(r), top = (P.bed ? 0.2 : P.sneaking ? 1.5 : P.pose === 'swim' ? 0.6 : 1.8) + 0.5 + 0.025 - tag.h * 0.0125;
-      tag.far.position.set(p.x, p.y + top, p.z); tag.near.position.copy(tag.far.position);
-      // (nor over someone invisible, or dying)
-      const close = d2 < 64 * 64 && !r.invis && !(p.f & F.DEAD) && !nameRule.hidden;
-      tag.far.visible = close;
-      tag.near.visible = close && !P.sneaking;
+      const tagDistance = o ? Math.max(0, o.get('playerTagDistance') | 0) : 64;
+      const tagEnabled = !o || o.get('playerTagsEnabled') !== false;
+      if (tagEnabled && d2 < tagDistance * tagDistance && !r.invis && !(p.f & F.DEAD) && !nameRule.hidden) {
+        const top = 4, target = { x: p.x, y: p.y + top, z: p.z };
+        const sight = tagSettings.occlusionMemory > 0 ? this.tagSight(r, world, eye, target, now) : null;
+        const visible = tagSettings.occlusionMemory === 0 || sight.visible === true;
+        if (visible) {
+          const tag = tagSettings.occlusionMemory === 0 || sight.fresh ? this.tagOf(r, tagSettings) : r.tag;
+          if (!tag) continue;
+          tag.far.position.set(target.x, target.y, target.z); tag.near.position.copy(tag.far.position);
+          tag.far.visible = true;
+          tag.near.visible = !P.sneaking;
+          if (tagSettings.occlusionMemory > 0 && sight.fresh) {
+            r.lastTagPosition = { x: target.x, y: target.y, z: target.z };
+            r.lastTagSeenAt = now;
+            r.lastTagSneaking = P.sneaking;
+          }
+          this.tagVisual(tag, tagSettings, tagSettings.opacity, true, eye);
+        } else if (sight.visible === false && r.tag && r.lastTagPosition &&
+                   now - r.lastTagSeenAt <= tagSettings.occlusionMemory) {
+          const age = Math.max(0, now - r.lastTagSeenAt), opacity = tagSettings.opacity * (1 - age / tagSettings.occlusionMemory);
+          r.tag.far.position.set(r.lastTagPosition.x, r.lastTagPosition.y, r.lastTagPosition.z);
+          r.tag.near.position.copy(r.tag.far.position);
+          r.tag.far.visible = true;
+          r.tag.near.visible = !r.lastTagSneaking;
+          this.tagVisual(r.tag, tagSettings, opacity, false, eye);
+        } else if (r.tag) {
+          r.tag.far.visible = r.tag.near.visible = false;
+        }
+      } else if (r.tag) {
+        r.tag.far.visible = r.tag.near.visible = false;
+      }
+      if (!tagEnabled || d2 >= tagDistance * tagDistance || r.invis || (p.f & F.DEAD) || nameRule.hidden) {
+        r.lastTagSeenAt = 0; r.lastTagPosition = null;
+      }
     }
   }
   hide(r) {
+    r.outline.visible = false;
+    this.hideAvatar(r);
+  }
+  hideAvatar(r) {
+    r.lastTagSeenAt = 0; r.lastTagPosition = null; r.losTarget = null; r.losEye = null; r.losCheckedAt = -Infinity;
     const av = r.av;
+    if (!av) return;
     av.mesh.visible = av.armor.visible = av.glowRim.visible = av.glowBehind.visible = av.capeMesh.visible = av.hatMesh.visible = false;
     for (const h of av.held) if (h) h.mesh.visible = false;
     if (av.headItem) av.headItem.mesh.visible = false;
@@ -396,8 +751,7 @@ export class RemotePlayers {
     // invisible: only what they wear and hold shows, as in the game
     av.mesh.visible = on && !r.invis;
     av.armor.visible = on && av.wearing && !(r.invis && invisLook.hideArmor);
-    // Glowing: the outline, through walls too (shown even on someone invisible, as in the game)
-    av.glowRim.visible = av.glowBehind.visible = on && !!r.glow;
+    av.glowRim.visible = av.glowBehind.visible = false;
     // their cape (they send none while it is switched off), not while invisible or in an elytra
     av.invisible = !!r.invis;
     av.capeMesh.visible = av.capeShows(on);
@@ -424,7 +778,7 @@ const pingBars = ms => (ms < 0 ? 5 : ms < 150 ? 0 : ms < 300 ? 1 : ms < 600 ? 2 
 // a face for someone whose model is not loaded here (far off, or in another of Leon Network's games): their skin as the server sent it
 const FACES = new Map();
 function faceOf(url) {
-  const key = url || new URL('../../textures/skin/default.png?v=117', import.meta.url).href;
+  const key = url || new URL('../../textures/skin/default.png?v=118', import.meta.url).href;
   let im = FACES.get(key);
   if (!im) { if (FACES.size > 200) FACES.clear(); im = new Image(); im.src = key; FACES.set(key, im); }
   return im.complete && im.naturalWidth >= 64 ? im : null;
@@ -432,10 +786,13 @@ function faceOf(url) {
 export class PlayerList {
   constructor(net) { this.net = net; this.shown = false; this.animates = false; }
   draw(g) {
-    if (!this.shown || g.hideHud) return;
     const net = this.net, lat = net.lat || {};
+    if (!this.shown || g.hideHud) return;
     const rows = [{ name: net.name, rank: net.tag, ping: Math.round(net.rtt), face: net.ctx ? net.ctx.renderer.avatar.canvas : null, hidden: !!net.hidden }];
-    if (net.players) for (const r of net.players.list.values()) rows.push({ name: r.name, rank: r.rank, ping: lat[r.id] !== undefined ? lat[r.id] : -1, face: r.av && r.av.ready ? r.av.canvas : faceOf(r.skinUrl), hidden: r.hid });
+    if (net.players) for (const r of net.players.list.values()) {
+      if (lat[r.id] !== undefined) net.players.setLatency(r.id, lat[r.id]);
+      rows.push({ name: r.name, rank: r.rank, ping: lat[r.id] !== undefined ? lat[r.id] : -1, face: r.av && r.av.ready ? r.av.canvas : faceOf(r.skinUrl), hidden: r.hid });
+    }
     rows.sort((a, b) => (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1));
     // (each shown with its rank tag before it)
     for (const r of rows) r.shown = rankTag(r.rank) + r.name + (r.hidden ? ' §3(hidden)' : '');

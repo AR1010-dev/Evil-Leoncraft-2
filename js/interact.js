@@ -34,10 +34,21 @@
      hand.useOn(hit)         right click on a block (chests, tables); true if it did something
      hand.useItem(hit)       right click with the item (eat, armour, buckets); true if it did
 --------------------------------------------------------------------------- */
-import { B, BLOCKS, FLUID } from './blocks.js?v=117';
-import { selectionBoxes } from './models.js?v=117';
-import { placement, use, breakAt } from './place.js?v=117';
-import { breakTime, dropOf } from './survival.js?v=117';
+import { B, BLOCKS, FLUID } from './blocks.js?v=118';
+import { selectionBoxes } from './models.js?v=118';
+import { placement, use, breakAt } from './place.js?v=118';
+import { breakTime, dropOf } from './survival.js?v=118';
+
+export const RAPID_PLACEMENT_MIN_INTERVAL_MS = 50;
+export const RAPID_PLACEMENT_DEFAULTS = Object.freeze({
+  enabled: false,
+  updateIntervalMs: RAPID_PLACEMENT_MIN_INTERVAL_MS,
+  tickPlacementCap: 1,
+  velocityLeadTicks: 0,
+  allowedItems: null,
+  raycastReach: null,
+  alignmentCorrection: false,
+});
 
 export class Interactor {
   constructor(o) {
@@ -54,6 +65,87 @@ export class Interactor {
     this.breakDelay = 0; this.useDelay = 0;
     this.sinceSwing = 0;          // ticks since the arm last started a swing (it starts again after four)
     this.target = null;
+    this.tickNumber = 0;
+    this.placementsThisTick = 0;
+    this.lastSuccessfulUseAt = -Infinity;
+    this.lastSuccessfulPlacementAt = -Infinity;
+    this.configureRapidPlacement(o.rapidPlacement);
+  }
+  /* Runtime boundary for UI/main: enabled, interval in ms, per-tick placement
+     cap, velocity lead in ticks, numeric block-ID allow-list, reach, and aim
+     alignment. Reach never exceeds vanilla reach; placement never exceeds 20/s. */
+  configureRapidPlacement(options = {}) {
+    const source = options && typeof options === 'object' ? options : {};
+    const interval = Number(source.updateIntervalMs);
+    const cap = Number(source.tickPlacementCap);
+    const lead = Number(source.velocityLeadTicks);
+    const reach = source.raycastReach === null || source.raycastReach === undefined ? NaN : Number(source.raycastReach);
+    this.rapidPlacement = {
+      enabled: source.enabled === true,
+      updateIntervalMs: Number.isFinite(interval)
+        ? Math.max(RAPID_PLACEMENT_MIN_INTERVAL_MS, Math.min(1000, interval))
+        : RAPID_PLACEMENT_DEFAULTS.updateIntervalMs,
+      tickPlacementCap: Number.isFinite(cap) ? Math.max(1, Math.min(4, Math.floor(cap))) : RAPID_PLACEMENT_DEFAULTS.tickPlacementCap,
+      velocityLeadTicks: Number.isFinite(lead) ? Math.max(0, Math.min(4, lead)) : RAPID_PLACEMENT_DEFAULTS.velocityLeadTicks,
+      allowedItems: Array.isArray(source.allowedItems) ? source.allowedItems.filter(Number.isInteger) : null,
+      raycastReach: Number.isFinite(reach) ? Math.max(1, reach) : null,
+      alignmentCorrection: source.alignmentCorrection === true,
+      blocksOnly: source.blocksOnly !== false,
+    };
+    return this.rapidPlacement;
+  }
+  rapidPlacementTickDelay() {
+    const id = this.hand && this.hand.id ? this.hand.id() : 0;
+    const eligible = !this.rapidPlacement.blocksOnly || !!(BLOCKS[id] && BLOCKS[id].place !== false);
+    return this.rapidPlacement.enabled && eligible
+      ? Math.max(1, Math.ceil(this.rapidPlacement.updateIntervalMs / 50))
+      : 4;
+  }
+  placementRaycast(eye) {
+    const options = this.rapidPlacement;
+    if (!options.enabled) return this.target;
+    if (!eye) return this.target;
+    const p = this.player, maxReach = this.creative ? 5 : 4.5;
+    const reach = options.raycastReach === null ? maxReach : Math.min(maxReach, options.raycastReach);
+    let origin = eye;
+    if (options.velocityLeadTicks > 0 && p.vel) {
+      const lead = options.velocityLeadTicks;
+      const dx = p.vel.x * lead, dy = p.vel.y * lead, dz = p.vel.z * lead;
+      const magnitude = Math.hypot(dx, dy, dz), scale = magnitude > 0.25 ? 0.25 / magnitude : 1;
+      origin = {
+        x: eye.x + dx * scale,
+        y: eye.y + dy * scale,
+        z: eye.z + dz * scale,
+      };
+    }
+    let hit = p.pick(origin, reach);
+    const entity = this.entities ? this.entities.pickFor(origin, hit ? hit.t : undefined) : null;
+    if (entity || !hit || !hit.face) return null;
+    // Never ray through a protected block to choose a different target.
+    if (this.locked && this.locked(hit.x, hit.y, hit.z)) return null;
+    if (options.alignmentCorrection && hit.hit) {
+      const corrected = hit.hit.slice();
+      for (let axis = 0; axis < 3; axis++) {
+        const cell = axis === 0 ? hit.x : axis === 1 ? hit.y : hit.z;
+        const local = corrected[axis] - cell;
+        const snap = Math.round(local * 2) / 2;
+        if (Math.abs(local - snap) < 1e-4) corrected[axis] = cell + snap;
+      }
+      hit = Object.assign({}, hit, { hit: corrected });
+    }
+    return hit;
+  }
+  canPlaceNow() {
+    if (!this.rapidPlacement.enabled) return true;
+    const interval = this.rapidPlacement.updateIntervalMs;
+    return performance.now() - this.lastSuccessfulPlacementAt >= Math.max(RAPID_PLACEMENT_MIN_INTERVAL_MS, interval)
+      && this.placementsThisTick < this.rapidPlacement.tickPlacementCap;
+  }
+  notePlacement() {
+    const now = performance.now();
+    this.lastSuccessfulPlacementAt = now;
+    this.lastSuccessfulUseAt = now;
+    this.placementsThisTick++;
   }
   // the arm swings, as a click does
   swing() { this.hand.swing(); this.sinceSwing = 0; }
@@ -128,7 +220,7 @@ export class Interactor {
       this.useHeld = true;
       this.useOnce();
       // again four ticks after the tick the game would have seen the click on
-      this.useDelay = 5;
+      this.useDelay = this.rapidPlacement.enabled ? this.rapidPlacementTickDelay() : 5;
     }
   }
   up(button) {
@@ -137,6 +229,8 @@ export class Interactor {
   }
   // once a tick
   tick() {
+    this.tickNumber++;
+    this.placementsThisTick = 0;
     // with a button held, what the crosshair is on is looked at again first, as the game picks again each tick: a block
     // just broken (or placed) is not left as the target until the next frame, which in a slow frame comes after a tick or
     // two, and those ticks would not count towards the delay (from this tick's eyes, as the game picks each tick)
@@ -145,7 +239,7 @@ export class Interactor {
       if (this.creative) this.creativeTick();
       else this.mineTick();
     }
-    if (this.useHeld && --this.useDelay <= 0) { this.useOnce(); this.useDelay = 4; }
+    if (this.useHeld && --this.useDelay <= 0) { this.useOnce(); this.useDelay = this.rapidPlacementTickDelay(); }
   }
   startMining() {
     const h = this.target;
@@ -233,13 +327,19 @@ export class Interactor {
     this.target = null;
   }
   useOnce() {
+    if (this.rapidPlacement.enabled && performance.now() - this.lastSuccessfulUseAt < RAPID_PLACEMENT_MIN_INTERVAL_MS) return false;
     this.world.urgent = true;
-    try { return this._useOnce(); } finally { this.world.urgent = false; if (this.world.flushUrgent) this.world.flushUrgent(); }
+    try {
+      const result = this._useOnce();
+      if (result === true) this.lastSuccessfulUseAt = performance.now();
+      return result;
+    } finally { this.world.urgent = false; if (this.world.flushUrgent) this.world.flushUrgent(); }
   }
   _useOnce() {
-    if (this.useWith()) return;
+    const result = this.useWith();
+    if (result) return result;
     // the main hand had nothing to do: the off hand has its turn (a torch beside the pickaxe, food), as in the game
-    if (this.hand.withOffhand) this.hand.withOffhand(() => this.useWith());
+    if (this.hand.withOffhand) return this.hand.withOffhand(() => this.useWith());
   }
   // one right click with what is in the hand (hands.js swaps the off hand in for its turn); true when it did something,
   // 'fail' when a block could not be placed (which ends the click too)
@@ -276,11 +376,15 @@ export class Interactor {
     if (this.adventure && !(this.adventurePlace && this.adventurePlace(this.hand.id()))) return false;
     const id = this.hand.id();
     if (!id || !BLOCKS[id] || BLOCKS[id].place === false) return false;
-    let list = placement(this.world, h, id, this.player);
-    if (list.length && this.sim) list = this.sim.placed(list, h, id);
+    if (this.rapidPlacement.enabled && this.rapidPlacement.allowedItems && !this.rapidPlacement.allowedItems.includes(id)) return 'fail';
+    const placeHit = this.rapidPlacement.enabled ? this.placementRaycast(this.lastEye) : h;
+    if (!placeHit || (this.locked && this.locked(placeHit.x, placeHit.y, placeHit.z))) return 'fail';
+    let list = placement(this.world, placeHit, id, this.player);
+    if (list.length && this.sim) list = this.sim.placed(list, placeHit, id);
     // a block that cannot go there fails the click outright: the other hand does not get its turn (the game's FAIL)
     if (!list.length) return 'fail';
     if (this.mayPlace && list.some(([x, y, z, b]) => !this.mayPlace(x, y, z, b))) return 'fail';
+    if (!this.canPlaceNow()) return 'fail';
     for (const [x, y, z, b, m] of list) {
       const cur = this.world.get(x, y, z);
       this.world.set(x, y, z, b, m);
@@ -289,6 +393,7 @@ export class Interactor {
       if (FLUID[cur] === 1 && this.onSplash) this.onSplash(x + 0.5, z + 0.5);
       this.fluids.around(x, y, z);
     }
+    this.notePlacement();
     this.hand.swing();
     this.hand.used(list);           // (what was placed, for blocks that hold things)
     return true;

@@ -39,9 +39,9 @@
    at the first one in the way. Walking into something up to 0.6 high steps
    up onto it, which is how stairs and slabs are climbed.
 --------------------------------------------------------------------------- */
-import { BLOCKS, FLUID, SOLID, B } from './blocks.js?v=117';
-import { collisionBoxes, selectionBoxes } from './models.js?v=117';
-import { LEVEL, FALLING } from './world-const.js?v=117';
+import { BLOCKS, FLUID, SOLID, B } from './blocks.js?v=118';
+import { collisionBoxes, selectionBoxes } from './models.js?v=118';
+import { LEVEL, FALLING } from './world-const.js?v=118';
 const THREE = window.THREE;
 
 const W = 0.3, HT = 1.8, STEP = 0.6;
@@ -71,7 +71,7 @@ export class Player {
     this.vel = new THREE.Vector3();
     this.yaw = 0; this.pitch = 0;
     this.onGround = false; this.inWater = false; this.eyeInWater = false; this.inLava = false;
-    this.flying = false; this.sprinting = false; this.sneaking = false;
+    this.flying = false; this.sprinting = true; this.sneaking = false;
     this.swimming = false; this.pose = 'stand'; this.h = HT;
     this.scale = 1; this.halfW = W;     // (half size in Leon Network's Chameleon: setScale)
     this.eyeH = 1.62; this.prevEyeH = 1.62;
@@ -227,7 +227,7 @@ export class Player {
         this.fallDistance = 0;
         // slime throws you back up (not sneaking), a bed a little
         if (BLOCKS[under] && BLOCKS[under].name === 'slime_block' && !this.sneaking && this.vel.y < 0) this.vel.y = -this.vel.y;
-        else if (isBed(under) && !this.sneaking && this.vel.y < 0) this.vel.y = -this.vel.y * 0.66;
+        else if (isBed(under) && !this.sneaking && this.vel.y < 0) this.vel.y = -this.vel.y * 2;
         else this.vel.y = 0;
       } else this.vel.y = 0;
     } else if (dy !== 0) this.onGround = false;
@@ -469,7 +469,7 @@ export class Player {
     else if (this.inWater || this.inLava) accel = 0.02;
     else if (ground0) {
       const slip = slip0;
-      accel = (this.sprinting ? 0.13 : 0.1) * (0.216 / (slip * slip * slip));
+      accel = (this.sprinting ? 0.18 : 0.15);
       // Speed and Slowness (survival.js effects): +20% and -15% a level
       const fx = this.effects;
       if (fx && (fx.speed || fx.slowness)) accel *= Math.max(0, (1 + 0.2 * (fx.speed ? fx.speed.level : 0)) * (1 - 0.15 * (fx.slowness ? fx.slowness.level : 0)));
@@ -628,8 +628,8 @@ export class Player {
        scaled by FOV Effects. It eases half way there each tick and is drawn
        between ticks (view), so it never steps. */
     const fx = this.effects;
-    let speed = this.sprinting ? 1.3 : 1;
-    if (fx && fx.speed) speed *= 1 + 0.2 * fx.speed.level;
+    let speed = this.sprinting ? 1.5 : 1.3;
+    if (fx && fx.speed) speed *= 1 + 0.1 * fx.speed.level;
     if (fx && fx.slowness) speed *= Math.max(0, 1 - 0.15 * fx.slowness.level);
     const fm = (this.flying ? 1.1 : 1) * (speed + 1) / 2;
     this.prevFovMod = this.fovMod;
@@ -680,7 +680,7 @@ export class Player {
     const tdx = Math.abs(1 / dir.x), tdy = Math.abs(1 / dir.y), tdz = Math.abs(1 / dir.z);
     let tx = (sx > 0 ? x + 1 - eye.x : eye.x - x) * tdx, ty = (sy > 0 ? y + 1 - eye.y : eye.y - y) * tdy, tz = (sz > 0 ? z + 1 - eye.z : eye.z - z) * tdz;
     let face = null, t = 0;
-    while (t <= reach) {
+    while (t <= reach+2) {
       const b = this.w.get(x, y, z);
       if (b && !FLUID[b] && b !== B.air && BLOCKS[b].shape !== 'none') {
         const d = BLOCKS[b];

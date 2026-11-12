@@ -6,7 +6,7 @@ try {
   if (window.__lc2Go) window.__lc2Go();
   window.THREE = await import('./three.module.js');
   status.textContent = 'Loading game modules…';
-  await import('./main.js?v=117');
+  await import('./main.js?v=118');
 } catch (error) {
   console.error('Leoncraft startup failed', error);
   status.textContent = 'Game startup failed: ' + (error && error.message ? error.message : String(error));

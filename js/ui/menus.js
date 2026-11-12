@@ -7,7 +7,7 @@
 
      TitleScreen, SelectWorldScreen, CreateWorldScreen, EditWorldScreen,
      ConfirmScreen, NoticeScreen, MessageScreen, OptionsScreen and its pages
-     (Video, Controls, Mouse, Key Binds, Skin, Music & Sounds, Accessibility,
+     (Video, Evilleoncraft Settings, Controls, Mouse, Key Binds, Skin, Music & Sounds, Accessibility,
      Language, Credits), PauseScreen, LoadingScreen, DeathScreen.
 
    The game talks to them through gui.hooks:
@@ -26,19 +26,22 @@
 import {
   Screen, Button, IconButton, Slider, CycleButton, TextField, Checkbox, TextLink, ScrollList,
   WidgetRow, Tabs, OptionsListScreen, DEFAULT_KEYS, DEFAULT_KEYS2, keyLabel, onOff, WHITE, GREY,
-} from './gui.js?v=117';
-import { Packs } from './pack.js?v=117';
-import { Account } from '../net/account.js?v=117';
-import { withAccount, AccountScreen, AdminScreen, LoginScreen, logOut } from './account.js?v=117';
-import { packArtSummary } from '../entities/packart.js?v=117';
-import { LanScreen } from './lan.js?v=117';
-import { parseSeed } from '../gen/random.js?v=117';
-import { SOUND_CREDITS } from '../sound/credits.js?v=117';
-import { PAINTING_ART } from '../paintingdata.js?v=117';
-import { SkinGalleryScreen, skinCredits } from './skins.js?v=117';
-import { SkinsScreen } from './skinmenu.js?v=117';
-import { FlatCustomizeScreen } from './flat.js?v=117';
-import { DEFAULT_FLAT, flatGenerator } from '../gen/flat.js?v=117';
+} from './gui.js?v=118';
+import { Packs } from './pack.js?v=118';
+import { Account } from '../net/account.js?v=118';
+import { withAccount, AccountScreen, AdminScreen, LoginScreen, logOut } from './account.js?v=118';
+import { packArtSummary } from '../entities/packart.js?v=118';
+import { LanScreen } from './lan.js?v=118';
+import { parseSeed } from '../gen/random.js?v=118';
+import { CHAMS_STYLE_NAMES } from '../render/chams-styles.js?v=118';
+import { SOUND_CREDITS } from '../sound/credits.js?v=118';
+import { PAINTING_ART } from '../paintingdata.js?v=118';
+import { SkinGalleryScreen, skinCredits } from './skins.js?v=118';
+import { SkinsScreen } from './skinmenu.js?v=118';
+import { FlatCustomizeScreen } from './flat.js?v=118';
+import { DEFAULT_FLAT, flatGenerator } from '../gen/flat.js?v=118';
+import { itemId, itemName, displayName } from '../items.js?v=118';
+import { STAR_MOTION_PRESETS } from '../render/star-motion.js?v=118';
 
 const PI = Math.PI;
 
@@ -410,7 +413,7 @@ export class SelectWorldScreen extends Screen {
     if (this.importing) return;
     this.importing = true; this.lc1B.active = false; this.lc1B.message = 'Importing...'; this.gui.markDirty();
     const done = msg => { this.importing = false; if (this.lc1B) { this.lc1B.active = true; this.lc1B.message = 'Import from Leoncraft 1'; } this.gui.markDirty(); if (msg) this.gui.open(new NoticeScreen('Import from Leoncraft 1', msg)); };
-    import('../lc1/spimport.js?v=117').then(m => {
+    import('../lc1/spimport.js?v=118').then(m => {
       const saves = m.lc1Saves();
       if (!saves.length) return done('There is no Leoncraft 1 world in this browser.');
       return m.importLC1(saves[0].key, Worlds).then(r => {
@@ -719,11 +722,11 @@ export class OptionsScreen extends Screen {
     if (g.inGame) {
       this.add(new CycleButton(x1, 29, 150, 20, 'Difficulty', { values: DIFFS, value: o.get('difficulty'), format: v => DIFF_NAMES[v], onChange: v => o.set('difficulty', v) }));
     } else off(this.add(new Button(x1, 29, 150, 20, 'Online...', null)), 'Not available in Leoncraft');
-    const y0 = Math.min(61 + 30, H - 33 - 120);
     const items = [
       ['Skin Customization...', () => new SkinCustomizationScreen()],
       ['Music & Sounds...', () => new MusicSoundsScreen()],
       ['Video Settings...', () => new VideoSettingsScreen()],
+      ['Evilleoncraft Settings...', () => new EvilleoncraftSettingsScreen()],
       ['Controls...', () => new ControlsScreen()],
       ['Language...', () => new LanguageScreen()],
       ['Chat Settings...', null],
@@ -732,6 +735,8 @@ export class OptionsScreen extends Screen {
       ['Telemetry Data...', null],
       ['Credits & Attribution...', () => new CreditsScreen()],
     ];
+    const rowCount = Math.ceil(items.length / 2);
+    const y0 = Math.min(91, H - 33 - ((rowCount - 1) * 24 + 20));
     items.forEach(([label, make], i) => {
       const b = this.add(new Button(i % 2 ? x1 : x0, y0 + (i >> 1) * 24, 150, 20, label, make ? () => g.open(make()) : null));
       if (!make) off(b, 'Not in Leoncraft 2 yet');
@@ -745,9 +750,726 @@ export class OptionsScreen extends Screen {
 }
 
 // Video Settings (the game's own, with the one Shaders button) live in ui/video.js
-export { VideoSettingsScreen } from './video.js?v=117';
-import { VideoSettingsScreen, shadersButton, fullbrightButton } from './video.js?v=117';
-import { minimapButtons } from './minimap.js?v=117';
+export { VideoSettingsScreen } from './video.js?v=118';
+import { VideoSettingsScreen, shadersButton, fullbrightButton } from './video.js?v=118';
+import { MinimapSettingsScreen } from './minimap.js?v=118';
+
+const MOD_COLORS = [0x00ff00, 0xff0000, 0xffff00, 0x00ffff, 0xffffff, 0xff8000, 0xb3a000];
+const MOD_COLOR_NAMES = new Map([[0x00ff00, 'Green'], [0xff0000, 'Red'], [0xffff00, 'Yellow'], [0x00ffff, 'Cyan'], [0xffffff, 'White'], [0xff8000, 'Orange'], [0xb3a000, 'Gold']]);
+
+function modColor(o, key, label) {
+  return new CycleButton(0, 0, 150, 20, label, {
+    values: MOD_COLORS, value: o.get(key), format: v => MOD_COLOR_NAMES.get(v) || 'Custom',
+    onChange: v => o.set(key, v),
+  });
+}
+function modSlider(o, key, label, min, max, step, format) {
+  return new Slider(0, 0, 150, 20, {
+    min, max, step, value: o.get(key),
+    label: v => label + format(v),
+    onChange: v => o.set(key, v),
+  });
+}
+function chamsRgbSlider(o, shift, label, key = 'chamsColor') {
+  const color = o.get(key) ?? 0x00ffff;
+  return new Slider(0, 0, 150, 20, {
+    min: 0, max: 255, step: 1, value: (color >> shift) & 255,
+    label: v => label + ': ' + Math.round(v),
+    onChange: v => {
+      const current = o.get(key) ?? 0x00ffff;
+      o.set(key, (current & ~(255 << shift)) | (Math.round(v) << shift));
+    },
+  });
+}
+function outlineRgbSlider(o, shift, label) {
+  const color = o.get('chamsOutlineColor') ?? 0x00ffff;
+  return new Slider(0, 0, 150, 20, {
+    min: 0, max: 255, step: 1, value: (color >> shift) & 255,
+    label: v => label + ': ' + Math.round(v),
+    onChange: v => {
+      const current = o.get('chamsOutlineColor') ?? 0x00ffff;
+      o.set('chamsOutlineColor', (current & ~(255 << shift)) | (Math.round(v) << shift));
+    },
+  });
+}
+function outlineSecondaryRgbSlider(o, shift, label) {
+  const color = o.get('chamsOutlineSecondaryColor') ?? 0xffffff;
+  return new Slider(0, 0, 150, 20, {
+    min: 0, max: 255, step: 1, value: (color >> shift) & 255,
+    label: v => label + ': ' + Math.round(v),
+    onChange: v => {
+      const current = o.get('chamsOutlineSecondaryColor') ?? 0xffffff;
+      o.set('chamsOutlineSecondaryColor', (((current & ~(255 << shift)) | (Math.round(v) << shift)) >>> 0) & 0xffffff);
+    },
+  });
+}
+function heldOutlineRgbSlider(o, key, shift, label) {
+  const fallback = 0x00ffff;
+  const color = o.get(key) ?? fallback;
+  return new Slider(0, 0, 150, 20, {
+    min: 0, max: 255, step: 1, value: (color >> shift) & 255,
+    label: v => label + ': ' + Math.round(v),
+    onChange: v => {
+      const current = o.get(key) ?? fallback;
+      o.set(key, (((current & ~(255 << shift)) | (Math.round(v) << shift)) >>> 0) & 0xffffff);
+    },
+  });
+}
+function glintRgbSlider(o, key, shift, label) {
+  const color = o.get(key);
+  return new Slider(0, 0, 150, 20, {
+    min: 0, max: 255, step: 1, value: (color >> shift) & 255,
+    label: v => label + ': ' + Math.round(v),
+    onChange: v => {
+      const current = o.get(key);
+      o.set(key, (((current & ~(255 << shift)) | (Math.round(v) << shift)) >>> 0) & 0xffffff);
+    },
+  });
+}
+
+function exportSettingsConfig(options) {
+  const blob = new Blob([options.exportConfig()], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'evilleoncraft2-config.json';
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function importSettingsConfig(options, gui) {
+  const picker = document.createElement('input');
+  picker.type = 'file';
+  picker.accept = '.json,application/json';
+  picker.addEventListener('change', async () => {
+    const file = picker.files && picker.files[0];
+    if (!file) return;
+    try {
+      const count = options.importConfig(await file.text());
+      gui.open(new NoticeScreen('Config Imported', count + ' settings loaded.'));
+    } catch (error) {
+      gui.open(new NoticeScreen('Config Import Failed', error.message || 'The selected file is not a valid config.'));
+    }
+  }, { once: true });
+  picker.click();
+}
+
+export class EvilleoncraftSettingsScreen extends OptionsListScreen {
+  constructor() { super('Evilleoncraft Settings'); }
+  rows(list) {
+    const g = this.gui;
+    const open = Screen => new Button(0, 0, 150, 20, Screen.label + '...', () => g.open(new Screen()));
+    list.entries = [
+      new CategoryRow('Player & World Visuals'),
+      new WidgetRow(open(PlayerVisualSettingsScreen), open(MarkerSettingsScreen)),
+      new WidgetRow(open(TracerSettingsScreen), open(AntiBlindSettingsScreen)),
+      new CategoryRow('Blocks & Items'),
+      new WidgetRow(open(BlockHighlightSettingsScreen), open(XraySettingsScreen)),
+      new WidgetRow(open(ItemMapSettingsScreen), open(ChamsSettingsScreen)),
+      new CategoryRow('Appearance'),
+      new WidgetRow(new Button(0, 0, 150, 20, 'Minimap Settings...', () => g.open(new MinimapSettingsScreen())), new Button(0, 0, 150, 20, 'Lighting...', () => g.open(new ModLightingSettingsScreen()))),
+      new WidgetRow(new Button(0, 0, 310, 20, 'Star Motion...', () => g.open(new StarMotionSettingsScreen()))),
+      new CategoryRow('Inventory Automation'),
+      new WidgetRow(open(AutoArmorSettingsScreen), open(AutoOffhandSettingsScreen)),
+      new WidgetRow(new Button(0, 0, 310, 20, 'Rapid Placement (FastPlace)...', () => g.open(new FastPlaceSettingsScreen()))),
+      new CategoryRow('Gameplay'),
+      new WidgetRow(new Button(0, 0, 150, 20, 'Auto Target Settings...', () => g.open(new AutoTargetSettingsScreen())),
+        optToggle(this.options, 'autoTargetEnabled', 'Enable Auto Target',
+          'Rotates toward and attacks selected mobs in offline single-player only. Player entities are never targeted.')),
+      new WidgetRow(optToggle(this.options, 'singleplayerNoKnockback', 'No Knockback (Singleplayer)',
+        'Prevents knockback only in offline single-player worlds. Has no effect in multiplayer.')),
+      new CategoryRow('Controls'),
+      new WidgetRow(new Button(0, 0, 310, 20, 'Module Key Binds...', () => g.open(new KeyBindsScreen()))),
+      new CategoryRow('Configs'),
+      new WidgetRow(
+        new Button(0, 0, 150, 20, 'Export Config', () => exportSettingsConfig(this.options)),
+        new Button(0, 0, 150, 20, 'Import Config', () => importSettingsConfig(this.options, g)),
+      ),
+    ];
+  }
+}
+
+class StarMotionSettingsScreen extends OptionsListScreen {
+  static label = 'Star Motion';
+  constructor() { super('Star Motion'); }
+  rows(list) {
+    const o = this.options;
+    const values = STAR_MOTION_PRESETS.map(preset => preset.id);
+    const current = values.includes(o.get('starMotionPreset')) ? o.get('starMotionPreset') : values[0];
+    list.entries = [
+      new CategoryRow('20 Star Motion Presets'),
+      new WidgetRow(new CycleButton(0, 0, 310, 20, 'Motion', {
+        values,
+        value: current,
+        format: id => STAR_MOTION_PRESETS.find(preset => preset.id === id)?.name || STAR_MOTION_PRESETS[0].name,
+        onChange: id => o.set('starMotionPreset', id),
+        tooltip: id => id === 'sky-follow' ? 'Stars keep their original movement with the sky.' : 'Changes how the stars drift across the sky.',
+      })),
+    ];
+  }
+}
+
+class ChamsSettingsScreen extends OptionsListScreen {
+  static label = 'Chams';
+  constructor() { super('Chams'); }
+  rows(list) {
+    const o = this.options;
+    list.entries = [
+      new CategoryRow('Appearance'),
+      new WidgetRow(optToggle(o, 'chamsEnabled', 'Enable Chams'), modSlider(o, 'chamsTint', 'Tint: ', 0, 1, 0.05, pct)),
+      new WidgetRow(modSlider(o, 'chamsEffectAmount', 'Effect Amount: ', 0, 1, 0.05, pct)),
+      new WidgetRow(new CycleButton(0, 0, 150, 20, 'Style', {
+        values: CHAMS_STYLE_NAMES,
+        value: CHAMS_STYLE_NAMES.includes(o.get('chamsStyle')) ? o.get('chamsStyle') : 'tint',
+        format: v => v === 'holographic' ? 'Holographic' : v[0].toUpperCase() + v.slice(1),
+        onChange: v => o.set('chamsStyle', v),
+      }), chamsRgbSlider(o, 16, 'Red')),
+      new WidgetRow(chamsRgbSlider(o, 8, 'Green'), chamsRgbSlider(o, 0, 'Blue')),
+      new WidgetRow(new Button(0, 0, 310, 20, 'Outline Settings...', () => this.gui.open(new ChamsOutlineSettingsScreen()))),
+      new CategoryRow('Lighting & Transparency'),
+      new WidgetRow(modSlider(o, 'chamsGlow', 'Glow: ', 0, 1, 0.05, pct), optToggle(o, 'chamsSkyEnabled', 'Tint Sky')),
+      new WidgetRow(optToggle(o, 'chamsTransparency', 'Transparency'), modSlider(o, 'chamsOpacity', 'Opacity: ', 0.1, 1, 0.05, pct)),
+      new CategoryRow('Color Adjustment'),
+      new WidgetRow(modSlider(o, 'chamsFxBrightness', 'Color Brightness: ', -1, 1, 0.05, v => v.toFixed(2)),
+        modSlider(o, 'chamsFxSaturation', 'Color Saturation: ', 0, 2, 0.05, v => v.toFixed(2))),
+      new WidgetRow(modSlider(o, 'chamsFxContrast', 'Color Contrast: ', 0.5, 2, 0.05, v => v.toFixed(2)),
+        modSlider(o, 'chamsFxHue', 'Hue Shift: ', -180, 180, 5, v => Math.round(v) + '°')),
+      new CategoryRow('Held Item Glow'),
+      new WidgetRow(optToggle(o, 'chamsHandGlowEnabled', 'Enable Item Glow'),
+        modSlider(o, 'chamsHandGlowStrength', 'Glow Strength: ', 0, 3, 0.1, v => v.toFixed(1))),
+      new WidgetRow(modSlider(o, 'chamsHandGlowRadius', 'Blur Radius: ', 0, 24, 1, v => v + ' px'),
+        modSlider(o, 'chamsHandGlowSoftness', 'Blur Softness: ', 0, 1, 0.05, pct)),
+      new WidgetRow(modSlider(o, 'chamsHandGlowOpacity', 'Glow Opacity: ', 0, 1, 0.05, pct)),
+      new CategoryRow('Visual Effects'),
+      new WidgetRow(optToggle(o, 'chamsRainbow', 'Rainbow Tint'),
+        modSlider(o, 'chamsRainbowBlend', 'Rainbow Blend: ', 0, 1, 0.05, pct)),
+      new WidgetRow(modSlider(o, 'chamsRainbowSpeed', 'Rainbow Speed: ', 0, 2, 0.05, v => v.toFixed(2)),
+        modSlider(o, 'chamsRainbowSaturation', 'Rainbow Saturation: ', 0, 1, 0.05, pct)),
+      new WidgetRow(modSlider(o, 'chamsRimStrength', 'Rim Light: ', 0, 2, 0.05, v => v.toFixed(2)),
+        modSlider(o, 'chamsRimWidth', 'Rim Width: ', 1, 8, 0.25, v => v.toFixed(2))),
+      new WidgetRow(chamsRgbSlider(o, 16, 'Gradient Red', 'chamsGradientColor'),
+        chamsRgbSlider(o, 8, 'Gradient Green', 'chamsGradientColor')),
+      new WidgetRow(chamsRgbSlider(o, 0, 'Gradient Blue', 'chamsGradientColor')),
+      new WidgetRow(modSlider(o, 'chamsGradientBlend', 'Gradient Blend: ', 0, 1, 0.05, pct),
+        modSlider(o, 'chamsSparkleStrength', 'Sparkle Strength: ', 0, 2, 0.05, v => v.toFixed(2))),
+      new WidgetRow(modSlider(o, 'chamsSparkleScale', 'Sparkle Scale: ', 4, 80, 1, v => Math.round(v)),
+        modSlider(o, 'chamsSparkleSpeed', 'Sparkle Speed: ', 0, 4, 0.1, v => v.toFixed(1))),
+      new CategoryRow('Animation'),
+      new WidgetRow(optToggle(o, 'chamsPulse', 'Pulse Chams'), modSlider(o, 'chamsPulseSpeed', 'Pulse Speed: ', 0, 4, 0.1, v => v.toFixed(1))),
+      new WidgetRow(modSlider(o, 'chamsPulseAmount', 'Pulse Amount: ', 0, 1, 0.05, pct),
+        modSlider(o, 'chamsShimmerSpeed', 'Shimmer Speed: ', 0, 1, 0.01, v => v.toFixed(2))),
+      new WidgetRow(modSlider(o, 'chamsShimmerScale', 'Shimmer Scale: ', 4, 64, 1, v => Math.round(v)),
+        modSlider(o, 'chamsShimmerIntensity', 'Shimmer Strength: ', 0, 1, 0.05, pct)),
+    ];
+  }
+}
+
+class ChamsOutlineSettingsScreen extends OptionsListScreen {
+  constructor() { super('Chams Outlines'); }
+  rows(list) {
+    const o = this.options, g = this.gui, pctLabel = v => pct(v);
+    const open = (title, group) => new Button(0, 0, 150, 20, title + '...', () => g.open(new ChamsOutlineGroupScreen(title, group)));
+    list.entries = [
+      new CategoryRow('Outline'),
+      new WidgetRow(optToggle(o, 'chamsOutlineEnabled', 'Enable Outlines'), modSlider(o, 'chamsOutlineOpacity', 'Opacity: ', 0, 1, 0.01, pctLabel)),
+      new CategoryRow('Choose a Settings Group'),
+      new WidgetRow(open('Shape & Range', 'shape'), open('Color', 'color')),
+      new WidgetRow(open('Edge Effects', 'effects'), open('Held Item & Hand', 'held')),
+    ];
+  }
+}
+
+class ChamsOutlineGroupScreen extends OptionsListScreen {
+  constructor(title, group) { super('Chams Outlines: ' + title); this.group = group; }
+  rows(list) {
+    const o = this.options, pctLabel = v => pct(v);
+    const entries = {
+      shape: () => [
+        new CategoryRow('Shape & Range'),
+        new WidgetRow(modSlider(o, 'chamsOutlineWidth', 'Thickness: ', 1, 4, 1, v => v + ' px'),
+          modSlider(o, 'chamsOutlineSensitivity', 'Edge Sensitivity: ', 0.01, 0.15, 0.005, v => v.toFixed(3))),
+        new WidgetRow(modSlider(o, 'chamsOutlineDistance', 'Max Distance: ', 0, 512, 8, v => v ? v + ' blocks' : 'Unlimited'),
+          modSlider(o, 'chamsOutlineLiquidOpacity', 'Opacity Under Liquid: ', 0, 1, 0.01, pctLabel)),
+        new WidgetRow(modSlider(o, 'chamsOutlineDistanceThin', 'Distance Thinning: ', 0, 1, 0.05, pctLabel)),
+        new WidgetRow(modSlider(o, 'chamsOutlineFadeStart', 'Fade Start: ', 0, 512, 8, v => Math.round(v) + ' blocks'),
+          modSlider(o, 'chamsOutlineFadeEnd', 'Fade End: ', 8, 512, 8, v => Math.round(v) + ' blocks')),
+      ],
+      color: () => [
+        new CategoryRow('Primary Color'),
+        new WidgetRow(outlineRgbSlider(o, 16, 'Red'), outlineRgbSlider(o, 8, 'Green')),
+        new WidgetRow(outlineRgbSlider(o, 0, 'Blue')),
+        new CategoryRow('Secondary Color'),
+        new WidgetRow(outlineSecondaryRgbSlider(o, 16, 'Second Red'), outlineSecondaryRgbSlider(o, 8, 'Second Green')),
+        new WidgetRow(outlineSecondaryRgbSlider(o, 0, 'Second Blue'), modSlider(o, 'chamsOutlineColorBlend', 'Second Color Mix: ', 0, 1, 0.01, pctLabel)),
+        new CategoryRow('Rainbow'),
+        new WidgetRow(optToggle(o, 'chamsOutlineRainbow', 'Rainbow Color'), modSlider(o, 'chamsOutlineRainbowSpeed', 'Rainbow Speed: ', 0, 2, 0.05, v => v.toFixed(2))),
+        new WidgetRow(modSlider(o, 'chamsOutlineRainbowSaturation', 'Rainbow Saturation: ', 0, 1, 0.05, pctLabel),
+          modSlider(o, 'chamsOutlineBrightness', 'Brightness: ', 0.25, 2, 0.05, v => v.toFixed(2))),
+      ],
+      effects: () => [
+        new CategoryRow('Edge Appearance'),
+        new WidgetRow(modSlider(o, 'chamsOutlineSoftness', 'Edge Softness: ', 0.25, 2, 0.05, v => v.toFixed(2)),
+          modSlider(o, 'chamsOutlineBlur', 'Edge Blur: ', 0, 8, 0.25, v => v.toFixed(2) + ' px')),
+        new WidgetRow(modSlider(o, 'chamsOutlineDiagonal', 'Diagonal Detail: ', 0, 1, 0.05, pctLabel),
+          new CycleButton(0, 0, 150, 20, 'Edge Style', {
+            values: ['soft', 'sharp', 'double'], value: ['soft', 'sharp', 'double'].includes(o.get('chamsOutlineEdgeMode')) ? o.get('chamsOutlineEdgeMode') : 'soft',
+            format: v => v.charAt(0).toUpperCase() + v.slice(1), onChange: v => o.set('chamsOutlineEdgeMode', v),
+          })),
+        new CategoryRow('Glow & Pulse'),
+        new WidgetRow(modSlider(o, 'chamsOutlineGlow', 'Glow Strength: ', 0, 1, 0.01, pctLabel),
+          modSlider(o, 'chamsOutlineGlowWidth', 'Glow Width: ', 1, 8, 0.5, v => v.toFixed(1) + ' px')),
+        new WidgetRow(optToggle(o, 'chamsOutlinePulse', 'Pulse Outline'), modSlider(o, 'chamsOutlinePulseSpeed', 'Pulse Speed: ', 0, 4, 0.1, v => v.toFixed(1))),
+        new WidgetRow(modSlider(o, 'chamsOutlinePulseAmount', 'Pulse Amount: ', 0, 1, 0.05, pctLabel),
+          modSlider(o, 'chamsOutlineInnerOpacity', 'Inner Edge Opacity: ', 0, 1, 0.01, pctLabel)),
+        new CategoryRow('Fill & Dashes'),
+        new WidgetRow(optToggle(o, 'chamsOutlineFill', 'Soft Edge Fill'),
+          modSlider(o, 'chamsOutlineFillOpacity', 'Fill Strength: ', 0, 0.5, 0.01, pctLabel)),
+        new WidgetRow(optToggle(o, 'chamsOutlineDashes', 'Dashed Outline'),
+          modSlider(o, 'chamsOutlineDashScale', 'Dash Scale: ', 4, 64, 1, v => Math.round(v))),
+        new WidgetRow(modSlider(o, 'chamsOutlineDashSpeed', 'Dash Speed: ', 0, 4, 0.1, v => v.toFixed(1)),
+          modSlider(o, 'chamsOutlineCornerBoost', 'Corner Boost: ', 0, 1, 0.05, pctLabel)),
+      ],
+      held: () => [
+        new CategoryRow('Held Item'),
+        new WidgetRow(optToggle(o, 'chamsHeldOutlineEnabled', 'Outline Held Items'),
+          modSlider(o, 'chamsHeldOutlineOpacity', 'Item Outline Opacity: ', 0, 1, 0.01, pctLabel)),
+        new WidgetRow(heldOutlineRgbSlider(o, 'chamsHeldOutlineColor', 16, 'Item Red'),
+          heldOutlineRgbSlider(o, 'chamsHeldOutlineColor', 8, 'Item Green')),
+        new WidgetRow(heldOutlineRgbSlider(o, 'chamsHeldOutlineColor', 0, 'Item Blue')),
+        new CategoryRow('Hand'),
+        new WidgetRow(optToggle(o, 'chamsHandOutlineEnabled', 'Outline Hand'),
+          modSlider(o, 'chamsHandOutlineOpacity', 'Hand Opacity: ', 0, 1, 0.01, pctLabel)),
+        new WidgetRow(modSlider(o, 'chamsHandOutlineWidth', 'Hand Thickness: ', 1, 8, 0.5, v => v.toFixed(1) + ' px'),
+          heldOutlineRgbSlider(o, 'chamsHandOutlineColor', 16, 'Hand Red')),
+        new WidgetRow(heldOutlineRgbSlider(o, 'chamsHandOutlineColor', 8, 'Hand Green'),
+          heldOutlineRgbSlider(o, 'chamsHandOutlineColor', 0, 'Hand Blue')),
+      ],
+    };
+    list.entries = (entries[this.group] || entries.shape)();
+  }
+}
+
+class GlintSettingsScreen extends OptionsListScreen {
+  constructor() { super('Enchantment Glint'); }
+  rows(list) {
+    const o = this.options, pctLabel = v => pct(v);
+    list.entries = [
+      new CategoryRow('Pattern'),
+      new WidgetRow(modSlider(o, 'glintSpeed', 'Speed: ', 0, 1, 0.01, pctLabel),
+        modSlider(o, 'glintStrength', 'Strength: ', 0, 1, 0.01, pctLabel)),
+      new WidgetRow(modSlider(o, 'glintThickness', 'Thickness: ', 0, 1, 0.01, pctLabel),
+        modSlider(o, 'glintScale', 'Pattern Scale: ', 0.25, 3, 0.05, v => v.toFixed(2))),
+      new WidgetRow(modSlider(o, 'glintAngle', 'Angle: ', 0, 360, 1, v => Math.round(v) + '°'),
+        modSlider(o, 'glintLayerStrength', 'Second Layer: ', 0, 1, 0.01, pctLabel)),
+      new WidgetRow(glintRgbSlider(o, 'glintColor', 16, 'Primary R'), glintRgbSlider(o, 'glintColor', 8, 'Primary G')),
+      new WidgetRow(glintRgbSlider(o, 'glintColor', 0, 'Primary B'), glintRgbSlider(o, 'glintSecondaryColor', 16, 'Second R')),
+      new WidgetRow(glintRgbSlider(o, 'glintSecondaryColor', 8, 'Second G'), glintRgbSlider(o, 'glintSecondaryColor', 0, 'Second B')),
+      new CategoryRow('Animation & Effects'),
+      new WidgetRow(optToggle(o, 'glintEnabled', 'Enable Glint'), optToggle(o, 'glintPulse', 'Pulse Glint')),
+      new WidgetRow(modSlider(o, 'glintPulseSpeed', 'Pulse Speed: ', 0, 4, 0.1, v => v.toFixed(1)),
+        modSlider(o, 'glintPulseAmount', 'Pulse Amount: ', 0, 1, 0.05, pctLabel)),
+      new WidgetRow(modSlider(o, 'glintSparkle', 'Sparkle Amount: ', 0, 1, 0.01, pctLabel),
+        modSlider(o, 'glintSparkleScale', 'Sparkle Scale: ', 1, 8, 0.25, v => v.toFixed(2))),
+      new WidgetRow(modSlider(o, 'glintContrast', 'Contrast: ', 0.5, 2, 0.05, v => v.toFixed(2)),
+        modSlider(o, 'glintSoftness', 'Band Softness: ', 0, 1, 0.05, pctLabel)),
+      new WidgetRow(modSlider(o, 'glintLayerOffset', 'Layer Offset: ', -2, 2, 0.05, v => v.toFixed(2)),
+        modSlider(o, 'glintDistortion', 'Distortion: ', 0, 1, 0.05, pctLabel)),
+      new CategoryRow('Color & Brightness'),
+      new WidgetRow(optToggle(o, 'glintRainbow', 'Rainbow Glint'), modSlider(o, 'glintRainbowSpeed', 'Rainbow Speed: ', 0, 2, 0.05, v => v.toFixed(2))),
+      new WidgetRow(modSlider(o, 'glintSecondaryMix', 'Second Color Mix: ', 0, 1, 0.01, pctLabel),
+        modSlider(o, 'glintMaxBrightness', 'Maximum Brightness: ', 0.25, 3, 0.05, v => v.toFixed(2))),
+      new WidgetRow(modSlider(o, 'glintOpacity', 'Opacity: ', 0, 1, 0.01, pctLabel)),
+    ];
+  }
+}
+
+class AutoArmorSettingsScreen extends OptionsListScreen {
+  static label = 'Smart Equipment';
+  constructor() { super('Smart Equipment (AutoArmor)'); }
+  rows(list) {
+    const o = this.options, pctLabel = v => pct(v);
+    list.entries = [
+      new CategoryRow('Automation Rules'),
+      new WidgetRow(optToggle(o, 'autoArmorEnabled', 'Enable AutoArmor'),
+        optToggle(o, 'autoArmorRequireInventoryOpen', 'Require Inventory Open')),
+      new WidgetRow(optToggle(o, 'autoArmorPauseWhenScreenOpen', 'Pause in Other Screens'),
+        optToggle(o, 'autoArmorPauseInCombat', 'Pause During Combat')),
+      new WidgetRow(modSlider(o, 'autoArmorCombatPause', 'Combat Cooldown: ', 0, 5000, 100, v => (v / 1000).toFixed(1) + ' s'),
+        optToggle(o, 'autoArmorIgnoreCurses', 'Ignore Cursed Gear')),
+      new WidgetRow(new CycleButton(0, 0, 150, 20, 'Rating Formula', {
+        values: ['weighted', 'survivability', 'armorFirst'],
+        value: ['weighted', 'survivability', 'armorFirst'].includes(o.get('autoArmorRatingFormula')) ? o.get('autoArmorRatingFormula') : 'weighted',
+        format: v => ({ weighted: 'Weighted', survivability: 'Survivability', armorFirst: 'Armor First' })[v],
+        onChange: v => o.set('autoArmorRatingFormula', v),
+      }), modSlider(o, 'autoArmorDurabilityLimit', 'Minimum Durability: ', 0, 90, 5, pctLabel)),
+      new CategoryRow('Swap Timing'),
+      new WidgetRow(modSlider(o, 'autoArmorSwapInterval', 'Swap Interval: ', 100, 2000, 50, v => Math.round(v) + ' ms'),
+        modSlider(o, 'autoArmorDelayMin', 'Hand-Eye Delay Min: ', 100, 300, 10, v => Math.round(v) + ' ms')),
+      new WidgetRow(modSlider(o, 'autoArmorDelayMax', 'Hand-Eye Delay Max: ', 100, 300, 10, v => Math.round(v) + ' ms'),
+        modSlider(o, 'autoArmorArmorWeight', 'Armor Priority: ', 0, 10, 0.1, v => v.toFixed(1))),
+      new CategoryRow('Rating Weights'),
+      new WidgetRow(modSlider(o, 'autoArmorToughnessWeight', 'Toughness Priority: ', 0, 10, 0.1, v => v.toFixed(1)),
+        modSlider(o, 'autoArmorKnockbackWeight', 'Knockback Priority: ', 0, 10, 0.1, v => v.toFixed(1))),
+      new WidgetRow(modSlider(o, 'autoArmorEnchantmentWeight', 'Enchantment Priority: ', 0, 10, 0.1, v => v.toFixed(1)),
+        modSlider(o, 'autoArmorDurabilityWeight', 'Durability Priority: ', 0, 5, 0.1, v => v.toFixed(1))),
+      new WidgetRow(modSlider(o, 'autoArmorProtectionWeight', 'Protection Weight: ', 0, 5, 0.05, v => v.toFixed(2)),
+        modSlider(o, 'autoArmorFireProtectionWeight', 'Fire Protection: ', 0, 5, 0.05, v => v.toFixed(2))),
+      new WidgetRow(modSlider(o, 'autoArmorBlastProtectionWeight', 'Blast Protection: ', 0, 5, 0.05, v => v.toFixed(2)),
+        modSlider(o, 'autoArmorProjectileProtectionWeight', 'Projectile Protection: ', 0, 5, 0.05, v => v.toFixed(2))),
+      new WidgetRow(modSlider(o, 'autoArmorUnbreakingWeight', 'Unbreaking Weight: ', 0, 5, 0.05, v => v.toFixed(2)),
+        modSlider(o, 'autoArmorMendingWeight', 'Mending Weight: ', 0, 5, 0.05, v => v.toFixed(2))),
+      new WidgetRow(modSlider(o, 'autoArmorThornsWeight', 'Thorns Weight: ', 0, 5, 0.05, v => v.toFixed(2))),
+    ];
+  }
+}
+
+class AutoTargetSettingsScreen extends OptionsListScreen {
+  constructor() { super('Auto Target (Singleplayer)'); }
+  rows(list) {
+    const o = this.options;
+    const cycle = (key, label, values, names = {}) => new CycleButton(0, 0, 150, 20, label, {
+      values,
+      value: values.includes(o.get(key)) ? o.get(key) : values[0],
+      format: value => names[value] || value,
+      onChange: value => o.set(key, value),
+    });
+    const targets = new TextField(0, 0, 310, 20, {
+      value: o.get('autoTargetTypes'),
+      maxLength: 240,
+      hint: 'zombie,skeleton,creeper',
+      filter: value => /^[a-z0-9_, ]*$/i.test(value),
+      onChange: value => o.set('autoTargetTypes', value),
+    });
+    targets.tooltip = 'Comma-separated mob type IDs. Player entities are always excluded.';
+    list.entries = [
+      new CategoryRow('Offline Single-player Only'),
+      new WidgetRow(optToggle(o, 'autoTargetEnabled', 'Enable Auto Target',
+        'Disabled automatically whenever a multiplayer connection is present.')),
+      new CategoryRow('Target Mob IDs (comma-separated)'),
+      new WidgetRow(targets),
+      new CategoryRow('Target Selection'),
+      new WidgetRow(cycle('autoTargetPriority', 'Target Priority', ['nearest', 'lowestHealth', 'crosshair'], {
+        nearest: 'Nearest', lowestHealth: 'Lowest Health', crosshair: 'Closest to Crosshair',
+      }), cycle('autoTargetAimPoint', 'Aim Point', ['feet', 'center', 'upper', 'head'])),
+      new WidgetRow(optToggle(o, 'autoTargetHostileOnly', 'Hostile Mobs Only'),
+        optToggle(o, 'autoTargetIgnoreNamed', 'Ignore Named Mobs')),
+      new WidgetRow(optToggle(o, 'autoTargetSkipHurt', 'Skip Already-Hurt Mobs'),
+        optToggle(o, 'autoTargetLockTarget', 'Lock Current Target')),
+      new WidgetRow(modSlider(o, 'autoTargetRetargetDelay', 'Retarget Delay: ', 0, 100, 1, v => Math.round(v) + ' ticks')),
+      new CategoryRow('Aim & Reach'),
+      new WidgetRow(modSlider(o, 'autoTargetRange', 'Maximum Range: ', 1, 5, 0.5, v => v.toFixed(1) + ' blocks'),
+        modSlider(o, 'autoTargetTurnSpeed', 'Turn Speed: ', 1, 90, 1, v => Math.round(v) + ' deg/tick')),
+      new WidgetRow(modSlider(o, 'autoTargetAimTolerance', 'Aim Tolerance: ', 0.5, 15, 0.5, v => v.toFixed(1) + ' deg'),
+        modSlider(o, 'autoTargetSmoothing', 'Aim Smoothing: ', 0, 0.95, 0.05, v => Math.round(v * 100) + '%')),
+      new CategoryRow('Attack Rules'),
+      new WidgetRow(modSlider(o, 'autoTargetMinimumCharge', 'Minimum Attack Charge: ', 0.1, 1, 0.05, v => Math.round(v * 100) + '%'),
+        modSlider(o, 'autoTargetAttackInterval', 'Attack Interval: ', 0, 40, 1, v => Math.round(v) + ' ticks')),
+      new WidgetRow(optToggle(o, 'autoTargetRequireAttackKey', 'Require Attack Key'),
+        optToggle(o, 'autoTargetRequireWeapon', 'Require Weapon in Hand')),
+      new CategoryRow('Pause Conditions'),
+      new WidgetRow(optToggle(o, 'autoTargetPauseWhenHurt', 'Pause When You Are Hurt'),
+        optToggle(o, 'autoTargetPauseWhenUsing', 'Pause While Using Item')),
+      new WidgetRow(optToggle(o, 'autoTargetPauseWhenMoving', 'Pause While Moving')),
+    ];
+  }
+}
+
+const OFFHAND_CONDITIONS = ['health', 'hunger', 'playerRange', 'always'];
+const OFFHAND_CONDITION_LABELS = {
+  health: 'Health at/below',
+  hunger: 'Hunger at/below',
+  playerRange: 'Player within',
+  always: 'Always',
+};
+const OFFHAND_CONDITION_LIMITS = {
+  health: [1, 20, ' HP'],
+  hunger: [0, 20, ' hunger'],
+  playerRange: [1, 128, ' blocks'],
+  always: [0, 0, ''],
+};
+
+function offhandProfiles(options) {
+  const saved = options.get('autoOffhandProfiles');
+  return Array.from({ length: 10 }, (_, i) => {
+    const profile = saved && saved[i] || {};
+    const condition = OFFHAND_CONDITIONS.includes(profile.condition) ? profile.condition : 'health';
+    const [min, max] = OFFHAND_CONDITION_LIMITS[condition];
+    const threshold = Number.isFinite(profile.threshold) ? Math.max(min, Math.min(max, profile.threshold)) : (condition === 'health' ? 6 : condition === 'hunger' ? 6 : 16);
+    return {
+      enabled: profile.enabled === true,
+      itemId: Number.isInteger(profile.itemId) && profile.itemId > 0 ? profile.itemId : 0,
+      condition,
+      threshold,
+    };
+  });
+}
+
+class AutoOffhandStatusButton extends Button {
+  constructor(screen, profileIndex) {
+    super(0, 0, 310, 20, '', null);
+    this.screen = screen;
+    this.profileIndex = profileIndex;
+  }
+  draw(g) {
+    g.button(this.x, this.y, this.w, this.h, this.hovered ? 2 : 1);
+    const status = this.screen.gui.hooks.autoOffhandStatus(this.profileIndex);
+    g.boxText(status.text, this.x + 2, this.y, this.x + this.w - 2, this.y + this.h,
+      status.working ? 0x55ff55 : status.missing ? 0xffaa55 : 0xaaaaaa);
+  }
+}
+
+class AutoOffhandSettingsScreen extends OptionsListScreen {
+  constructor() {
+    super('Auto Offhand');
+    this.profileIndex = 0;
+    this.animates = true;
+  }
+  rows(list) {
+    const options = this.options, hooks = this.gui.hooks;
+    const profiles = offhandProfiles(options), profile = profiles[this.profileIndex];
+    const setProfile = patch => {
+      profiles[this.profileIndex] = Object.assign({}, profile, patch);
+      options.set('autoOffhandProfiles', profiles);
+    };
+    const refresh = () => { this.gui._initScreen(this); this.gui.markDirty(); };
+    const availableItems = hooks.autoOffhandItems ? hooks.autoOffhandItems() : [];
+    if (profile.itemId && !availableItems.includes(profile.itemId)) availableItems.unshift(profile.itemId);
+    if (!availableItems.includes(0)) availableItems.unshift(0);
+    const [min, max, unit] = OFFHAND_CONDITION_LIMITS[profile.condition];
+    const threshold = new Slider(0, 0, 150, 20, {
+      min, max, step: 1, value: profile.threshold,
+      label: v => profile.condition === 'always' ? 'Threshold: n/a' : 'Threshold: ' + Math.round(v) + unit,
+      onChange: v => setProfile({ threshold: Math.round(v) }),
+    });
+    threshold.active = profile.condition !== 'always';
+    list.entries = [
+      new CategoryRow('General'),
+      new WidgetRow(optToggle(options, 'autoOffhandEnabled', 'Enable Auto Offhand'),
+        new CycleButton(0, 0, 150, 20, 'Profile', {
+          values: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], value: this.profileIndex,
+          format: v => 'Profile ' + (v + 1),
+          onChange: v => { this.profileIndex = v; refresh(); },
+        })),
+      new WidgetRow(new Checkbox(0, 0, 'Profile Enabled', profile.enabled, v => setProfile({ enabled: v })),
+        new CycleButton(0, 0, 150, 20, 'Target Item', {
+          values: availableItems, value: profile.itemId,
+          format: id => id ? (displayName(id) || itemName(id) || 'Item ' + id) : 'Select item',
+          onChange: itemId => setProfile({ itemId }),
+        })),
+      new CategoryRow('Trigger'),
+      new WidgetRow(new CycleButton(0, 0, 150, 20, 'Trigger', {
+        values: OFFHAND_CONDITIONS, value: profile.condition,
+        format: v => OFFHAND_CONDITION_LABELS[v],
+        onChange: condition => {
+          const [nextMin, nextMax] = OFFHAND_CONDITION_LIMITS[condition];
+          setProfile({ condition, threshold: Math.max(nextMin, Math.min(nextMax, profile.threshold)) });
+          refresh();
+        },
+      }), threshold),
+      new CategoryRow('Status'),
+      new WidgetRow(new AutoOffhandStatusButton(this, this.profileIndex)),
+    ];
+  }
+}
+
+class PlayerVisualSettingsScreen extends OptionsListScreen {
+  static label = 'Player Visuals';
+  constructor() { super('Player Visuals'); }
+  rows(list) {
+    const o = this.options;
+    list.entries = [
+      new CategoryRow('Player Outline'),
+      new WidgetRow(optToggle(o, 'playerOutlineEnabled', 'Player Outline'), modColor(o, 'playerOutlineColor', 'Outline Color')),
+      new WidgetRow(modSlider(o, 'playerOutlineWidth', 'Outline Width: ', 1, 10, 1, v => v + ' px'),
+        modSlider(o, 'playerOutlineDistance', 'Outline Range: ', 0, 256, 1, v => v ? v + ' Blocks' : 'Unlimited')),
+      new CategoryRow('Nameplates'),
+      new WidgetRow(optToggle(o, 'playerTagsEnabled', 'Player Tags'), new Button(0, 0, 150, 20, 'Nameplate Settings...', () => this.gui.open(new NameplateSettingsScreen()))),
+      new WidgetRow(modSlider(o, 'playerTagDistance', 'Tag Range: ', 8, 128, 1, v => v + ' Blocks')),
+      new WidgetRow(optToggle(o, 'playerTagHealth', 'Health Bar'), optToggle(o, 'playerTagHunger', 'Hunger Bar')),
+      new WidgetRow(optToggle(o, 'playerTagArmor', 'Armor Bar'), optToggle(o, 'playerTagItems', 'Held Items')),
+    ];
+  }
+}
+
+class NameplateSettingsScreen extends OptionsListScreen {
+  constructor() { super('Extended Nameplates'); }
+  rows(list) {
+    const o = this.options;
+    list.entries = [
+      new CategoryRow('Text & Backdrop'),
+      new WidgetRow(modSlider(o, 'playerNameplateFontScale', 'Font Scale: ', 0.5, 2, 0.05, v => v.toFixed(2) + 'x'),
+        modSlider(o, 'playerNameplateOpacity', 'Opacity: ', 0, 1, 0.05, pct)),
+      new WidgetRow(modSlider(o, 'playerNameplateBackdropOpacity', 'Backdrop Opacity: ', 0, 1, 0.05, pct),
+        optToggle(o, 'playerNameplateLatency', 'Show Latency')),
+      new WidgetRow(optToggle(o, 'playerNameplateDistanceScale', 'Distance Scaling'),
+        optToggle(o, 'playerNameplateTeamColor', 'Team Colors')),
+      new CategoryRow('Equipment'),
+      new WidgetRow(new CycleButton(0, 0, 150, 20, 'Equipment Layout', {
+        values: ['inline', 'stacked', 'hidden'],
+        value: ['inline', 'stacked', 'hidden'].includes(o.get('playerNameplateEquipmentLayout')) ? o.get('playerNameplateEquipmentLayout') : 'inline',
+        format: v => ({ inline: 'Inline', stacked: 'Stacked', hidden: 'Hidden' })[v],
+        onChange: v => o.set('playerNameplateEquipmentLayout', v),
+      }), new CycleButton(0, 0, 150, 20, 'Equipment Detail', {
+        values: ['names', 'armor', 'full'],
+        value: ['names', 'armor', 'full'].includes(o.get('playerNameplateEquipmentDetail')) ? o.get('playerNameplateEquipmentDetail') : 'names',
+        format: v => ({ names: 'Names', armor: 'Armor', full: 'Full' })[v],
+        onChange: v => o.set('playerNameplateEquipmentDetail', v),
+      })),
+      new WidgetRow(optToggle(o, 'playerNameplateEnchantTiers', 'Show Enchantment Tiers')),
+      new CategoryRow('Occlusion'),
+      new WidgetRow(modSlider(o, 'playerNameplateOcclusionMemory', 'Memory Delay: ', 0, 500, 25, v => Math.round(v) + ' ms')),
+    ];
+  }
+}
+
+class FastPlaceSettingsScreen extends OptionsListScreen {
+  static label = 'Rapid Placement';
+  constructor() { super('Rapid Placement (FastPlace)'); }
+  rows(list) {
+    const o = this.options;
+    list.entries = [
+      new CategoryRow('Placement Rate'),
+      new WidgetRow(optToggle(o, 'fastPlaceEnabled', 'Enable FastPlace'),
+        modSlider(o, 'fastPlaceDelayReduction', 'Delay Reduction: ', 0, 1, 0.05, pct)),
+      new WidgetRow(modSlider(o, 'fastPlaceTickCap', 'Placements per Tick: ', 1, 4, 1, v => Math.round(v))),
+      new CategoryRow('Safety Governor'),
+      new CategoryRow('Hard minimum: 50 ms between placements'),
+      new WidgetRow(optToggle(o, 'fastPlaceBlocksOnly', 'Blocks Only')),
+      new WidgetRow(modSlider(o, 'fastPlaceUpdateInterval', 'Update Interval: ', 50, 500, 10, v => Math.round(v) + ' ms')),
+      new CategoryRow('Aim & Alignment'),
+      new WidgetRow(modSlider(o, 'fastPlaceVelocityOffset', 'Velocity Lead: ', 0, 1, 0.05, pct),
+        optToggle(o, 'fastPlaceAlignmentCorrection', 'Auto-Align')),
+    ];
+  }
+}
+
+class AntiBlindSettingsScreen extends OptionsListScreen {
+  static label = 'Environmental Clarity';
+  constructor() { super('Environmental Clarity (Anti-Blind)'); }
+  rows(list) {
+    const o = this.options;
+    list.entries = [
+      new CategoryRow('Effect Filters'),
+      new WidgetRow(optToggle(o, 'antiBlindEnabled', 'Enable Anti-Blind'),
+        modSlider(o, 'antiBlindBlindnessOpacity', 'Blindness Opacity: ', 0, 1, 0.05, pct)),
+      new WidgetRow(modSlider(o, 'antiBlindDarknessOpacity', 'Darkness Opacity: ', 0, 1, 0.05, pct),
+        modSlider(o, 'antiBlindNauseaOpacity', 'Nausea Opacity: ', 0, 1, 0.05, pct)),
+      new CategoryRow('View & Lighting'),
+      new WidgetRow(optToggle(o, 'antiBlindRestoreFog', 'Restore Fog Distance'),
+        modSlider(o, 'antiBlindShakeDampening', 'Shake Dampening: ', 0, 1, 0.05, pct)),
+      new WidgetRow(modSlider(o, 'antiBlindColorCorrection', 'Color Correction: ', 0, 1, 0.05, pct),
+        modSlider(o, 'antiBlindAmbientBoost', 'Ambient Boost: ', 0, 1, 0.05, pct)),
+      new WidgetRow(modSlider(o, 'antiBlindFlashThreshold', 'Flash Threshold: ', 0, 1, 0.05, pct)),
+      new CategoryRow('Overlays & Transitions'),
+      new WidgetRow(optToggle(o, 'antiBlindCustomOverlays', 'Custom Overlays'),
+        optToggle(o, 'antiBlindPotionParticles', 'Potion Particles')),
+      new WidgetRow(modSlider(o, 'antiBlindTransitionTime', 'Transition: ', 0, 1, 0.05, v => v.toFixed(2) + ' s')),
+    ];
+  }
+}
+
+class TracerSettingsScreen extends OptionsListScreen {
+  static label = 'Vector Indicator';
+  constructor() { super('Vector Indicator (Tracer)'); }
+  rows(list) {
+    const o = this.options;
+    list.entries = [
+      new CategoryRow('Targets'),
+      new WidgetRow(optToggle(o, 'tracerEnabled', 'Enable Tracers'),
+        optToggle(o, 'tracerPlayers', 'Players')),
+      new WidgetRow(optToggle(o, 'tracerMobs', 'Mobs'),
+        optToggle(o, 'tracerRelationshipColors', 'Relationship Colors')),
+      new WidgetRow(modSlider(o, 'tracerDistance', 'Max Distance: ', 8, 256, 4, v => Math.round(v) + ' blocks'),
+        modSlider(o, 'tracerWidth', 'Line Thickness: ', 1, 6, 0.5, v => v.toFixed(1) + ' px')),
+      new CategoryRow('Appearance'),
+      new WidgetRow(new CycleButton(0, 0, 150, 20, 'Screen Anchor', {
+        values: ['bottom', 'center', 'top'], value: ['bottom', 'center', 'top'].includes(o.get('tracerAnchor')) ? o.get('tracerAnchor') : 'bottom',
+        format: v => v.charAt(0).toUpperCase() + v.slice(1), onChange: v => o.set('tracerAnchor', v),
+      }), optToggle(o, 'tracerHealthColors', 'Health Gradient')),
+      new WidgetRow(modSlider(o, 'tracerOpacityFade', 'Distance Fade: ', 0, 1, 0.05, pct),
+        optToggle(o, 'tracerLockOn', 'Lock-On Highlight')),
+      new WidgetRow(modColor(o, 'tracerLockColor', 'Lock-On Color')),
+      new CategoryRow('Visibility'),
+      new WidgetRow(optToggle(o, 'tracerLineOfSight', 'Line-of-Sight Only')),
+    ];
+  }
+}
+
+class MarkerSettingsScreen extends OptionsListScreen {
+  static label = 'Chunk & Logout Markers';
+  constructor() { super('Chunk & Logout Markers'); }
+  rows(list) {
+    const o = this.options;
+    list.entries = [
+      new CategoryRow('Chunk Loading'),
+      new WidgetRow(optToggle(o, 'fastLoadMarkers', 'Fast Chunk Markers'),
+        modSlider(o, 'fastLoadThreshold', 'Fast Chunk Time: ', 5, 200, 1, v => v + ' ms')),
+      new WidgetRow(modSlider(o, 'fastLoadDistance', 'Chunk Marker Range: ', 0, 256, 1, v => v ? v + ' Chunks' : 'Unlimited'),
+        modColor(o, 'fastLoadColor', 'Chunk Marker Color')),
+      new CategoryRow('Logout Markers'),
+      new WidgetRow(modSlider(o, 'fastLoadOpacity', 'Marker Opacity: ', 0.1, 1, 0.05, pct),
+        optToggle(o, 'logoutMarkersEnabled', 'Logout Markers')),
+      new WidgetRow(modSlider(o, 'logoutMarkerDistance', 'Logout Range: ', 0, 256, 1, v => v ? v + ' Chunks' : 'OFF'),
+        optToggle(o, 'logoutMarkerLabels', 'Logout Labels')),
+      new WidgetRow(modColor(o, 'logoutMarkerColor', 'Logout Marker Color')),
+    ];
+  }
+}
+
+class BlockHighlightSettingsScreen extends OptionsListScreen {
+  static label = 'Block Highlights';
+  constructor() { super('Block Highlights'); }
+  rows(list) {
+    const o = this.options;
+    list.entries = [
+      new CategoryRow('General'),
+      new WidgetRow(optToggle(o, 'blockHighlightsEnabled', 'Enable Highlights'),
+        modSlider(o, 'highlightOpacity', 'Opacity: ', 0.1, 1, 0.05, pct)),
+      new WidgetRow(optToggle(o, 'highlightChests', 'Chests'), optToggle(o, 'highlightShulkers', 'Shulker Boxes')),
+      new WidgetRow(optToggle(o, 'highlightContainers', 'Other Containers'), optToggle(o, 'highlightSigns', 'Signs')),
+      new WidgetRow(optToggle(o, 'highlightBanners', 'Banners'), modColor(o, 'highlightTint', 'Highlight Tint')),
+    ];
+  }
+}
+
+class XraySettingsScreen extends OptionsListScreen {
+  static label = 'X-Ray';
+  constructor() { super('X-Ray'); }
+  rows(list) {
+    const o = this.options;
+    list.entries = [
+      new CategoryRow('X-Ray'),
+      new WidgetRow(optToggle(o, 'xrayEnabled', 'Enable X-Ray'),
+        modSlider(o, 'xrayOpacity', 'Opacity: ', 0.1, 1, 0.05, pct)),
+      new WidgetRow(optToggle(o, 'xrayOres', 'Show Ores')),
+      new WidgetRow(modSlider(o, 'xrayDistance', 'Range: ', 0, 256, 1, v => v ? v + ' Chunks' : 'Unlimited')),
+    ];
+  }
+}
+
+class ItemMapSettingsScreen extends OptionsListScreen {
+  static label = 'Item & Map Highlights';
+  constructor() { super('Item & Map Highlights'); }
+  rows(list) {
+    const o = this.options;
+    list.entries = [
+      new CategoryRow('Dropped Items'),
+      new WidgetRow(optToggle(o, 'dropHighlightsEnabled', 'Dropped Item Outlines'),
+        modColor(o, 'dropHighlightColor', 'Drop Outline Color')),
+      new WidgetRow(modSlider(o, 'dropHighlightOpacity', 'Drop Opacity: ', 0.1, 1, 0.05, pct),
+        modSlider(o, 'dropHighlightDistance', 'Drop Range: ', 0, 256, 1, v => v ? v + ' Blocks' : 'Unlimited')),
+      new CategoryRow('Maps'),
+      new WidgetRow(optToggle(o, 'mapHighlightEnabled', 'Framed Map Highlights'), modColor(o, 'mapHighlightColor', 'Map Highlight Color')),
+      new WidgetRow(modSlider(o, 'mapHighlightOpacity', 'Map Opacity: ', 0.1, 1, 0.05, pct)),
+    ];
+  }
+}
+
+class ModLightingSettingsScreen extends OptionsListScreen {
+  static label = 'Lighting';
+  constructor() { super('Lighting'); }
+  rows(list) { list.entries = [new WidgetRow(fullbrightButton(0, 0, 150, this.options))]; }
+}
 
 export class ControlsScreen extends OptionsListScreen {
   constructor() { super('Controls'); }
@@ -779,11 +1501,20 @@ const BINDS = [
   ['Gameplay', [['attack', 'Attack/Destroy'], ['pickBlock', 'Pick Block'], ['use', 'Use Item/Place Block']]],
   ['Inventory', [['drop', 'Drop Selected Item'], ['swapOffhand', 'Swap Item With Offhand']].concat([1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => ['hotbar' + n, 'Hotbar Slot ' + n]), [['inventory', 'Open/Close Inventory']])],
   ['Miscellaneous', [['advancements', 'Advancements'], ['debug', 'Debug Screen'], ['hideGui', 'Hide GUI'], ['perspective', 'Toggle Perspective']]],
+  ['Evilleoncraft Modules', [
+    ['modMinimap', 'Toggle Minimap'], ['modPlayerOutline', 'Toggle Player Outline'], ['modPlayerTags', 'Toggle Player Tags'],
+    ['modBlockHighlights', 'Toggle Block Highlights'], ['modDropHighlights', 'Toggle Drop Highlights'], ['modChunkMarkers', 'Toggle Chunk Markers'],
+    ['modXray', 'Toggle X-Ray'], ['modChams', 'Toggle Chams'], ['modAutoTarget', 'Toggle Auto Target'],
+  ]],
 ];
 
 class CategoryRow {
   constructor(name) { this.name = name; }
-  render(g, list, i, top, left, width, h) { g.centered(this.name, list.x + list.w / 2, top + h - 9 - 1 + 4, WHITE); }
+  render(g, list, i, top, left, width, h) {
+    g.fill(left, top + 3, left + width, top + h - 3, 0x805B4A3F);
+    g.fill(left, top + 2, left + width, top + 3, 0xC0C6A46A);
+    g.centered(this.name, list.x + list.w / 2, top + h - 9 - 1 + 4, WHITE);
+  }
 }
 // (two keys an action: the main one and a second, so two keys can do the same thing, as G with the left button)
 class KeyRow {
@@ -934,6 +1665,8 @@ export class MusicSoundsScreen extends OptionsListScreen {
       format: v => v === 'pause' ? 'Pause Menu' : v === 'toast' ? 'Pause Menu and Toast' : 'Never', onChange: v => o.set('musicToast', v),
       tooltip: () => 'Shows the name of the music playing.' });
     rows.push(new WidgetRow(freq, toast));
+    rows.push(new WidgetRow(optToggle(o, 'jukeboxDanceEnabled', 'Jukebox Dance',
+      'Makes nearby players and entities spin and stretch while a jukebox is playing.')));
     rows.push(new WidgetRow(this.packButton()));
     list.entries = rows;
   }
@@ -976,11 +1709,6 @@ export class AccessibilitySettingsScreen extends OptionsListScreen {
     const blur = optSlider(o, 'menuBlur', 0, 10, 1, v => 'Menu Background Blur: ' + (v ? v : 'OFF'));
     blur.tooltip = 'Changes the blurriness of menu backgrounds.';
     fe.tooltip = 'Controls how much the field of view can change with gameplay effects.';
-    // moved here from Video Settings, as in the game
-    const gsp = optSlider(o, 'glintSpeed', 0, 1, 0.01, v => 'Glint Speed: ' + (v <= 0 ? 'OFF' : pct(v)));
-    gsp.tooltip = 'Controls how fast the visual glint shimmers across enchanted items.';
-    const gst = optSlider(o, 'glintStrength', 0, 1, 0.01, v => 'Glint Strength: ' + (v <= 0 ? 'OFF' : pct(v)));
-    gst.tooltip = 'Controls how transparent the visual glint is on enchanted items.';
     const tilt = optSlider(o, 'damageTilt', 0, 1, 0.01, v => 'Damage Tilt: ' + (v <= 0 ? 'OFF' : pct(v)));
     tilt.tooltip = 'The amount of camera shake caused by being hurt.';
     list.entries = [
@@ -989,7 +1717,7 @@ export class AccessibilitySettingsScreen extends OptionsListScreen {
       new WidgetRow(text, off(new CycleButton(0, 0, 150, 20, 'High Contrast', { values: [false], value: false, format: onOff }), na)),
       new WidgetRow(optToggle(o, 'autoJump', 'Auto-Jump'), optToggle(o, 'bobbing', 'View Bobbing')),
       new WidgetRow(fe, tilt),
-      new WidgetRow(gsp, gst),
+      new WidgetRow(new Button(0, 0, 310, 20, 'Enchantment Glint Settings...', () => this.gui.open(new GlintSettingsScreen()))),
       new WidgetRow(optToggle(o, 'hideSplash', 'Hide Splash Texts', 'Hides the yellow line on the title screen.'), blur),
     ];
   }
@@ -1296,10 +2024,8 @@ export class ResourcePacksScreen extends Screen {
 /* ------------------------------ in game ------------------------------ */
 
 /* The pause menu: a 212-wide grid a quarter of the way down, Save and Quit
-   across both columns, 98-wide pairs above it. The top pair is Back to Game
-   and our one extra, the Shaders button from Video Settings (it takes effect
-   at once, behind the menu). Under it a pair of our own, as mods add them:
-   Fullbright, and the Minimap with its settings ("...") beside it. */
+   across both columns, 98-wide pairs above it. Mod-specific controls live in
+   the dedicated Evilleoncraft Settings screen. */
 export class PauseScreen extends Screen {
   constructor() { super('Game Menu'); this.background = 'world'; this.openedAt = performance.now(); }
   init() {
@@ -1308,8 +2034,7 @@ export class PauseScreen extends Screen {
     const xl = Math.floor(W / 2 - 102), xr = Math.floor(W / 2 + 4);
     this.add(new Button(xl, top + 50, 98, 20, 'Back to Game', () => this.resume()));
     this.add(shadersButton(xr, top + 50, 98, this.options));
-    this.add(fullbrightButton(xl, top + 74, 98, this.options));
-    for (const b of minimapButtons(xr, top + 74, 98, this.options, g)) this.add(b);
+    this.add(new Button(xl, top + 74, 204, 20, 'Evilleoncraft Settings...', () => g.open(new EvilleoncraftSettingsScreen())));
     const row = (y, a, b) => {
       for (const [x, [label, fn]] of [[xl, a], [xr, b]]) {
         const btn = this.add(new Button(x, y, 98, 20, label, fn));

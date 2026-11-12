@@ -77,13 +77,13 @@
    minimapNorth, minimapCoords, minimapEntities, minimapCave, minimapBiome,
    minimapLighting.
 --------------------------------------------------------------------------- */
-import { MAP_RGB, mapColourOf } from '../maps.js?v=117';
-import { FLUID, BLOCKS, SOLID, OPACITY, EMIT, MAX_ID } from '../blocks.js?v=117';
-import { BIOMES, SPRUCE_LEAF, BIRCH_LEAF } from '../biomes.js?v=117';
-import { H, Y0 } from '../world-const.js?v=117';
-import { lightLevel } from '../lightlevel.js?v=117';
-import { skyLightFactor } from '../render/vanilla.js?v=117';
-import { Button, CycleButton, WidgetRow, OptionsListScreen, onOff } from './gui.js?v=117';
+import { MAP_RGB, mapColourOf } from '../maps.js?v=118';
+import { FLUID, BLOCKS, SOLID, OPACITY, EMIT, MAX_ID } from '../blocks.js?v=118';
+import { BIOMES, SPRUCE_LEAF, BIRCH_LEAF } from '../biomes.js?v=118';
+import { H, Y0 } from '../world-const.js?v=118';
+import { lightLevel } from '../lightlevel.js?v=118';
+import { skyLightFactor } from '../render/vanilla.js?v=118';
+import { Button, CycleButton, WidgetRow, OptionsListScreen, onOff } from './gui.js?v=118';
 
 const N = 64, S = N * 16;          // the ring: chunks across, and pixels
 const MASK = N - 1;
@@ -101,6 +101,7 @@ const HEIGHT_LIMIT = 20, FADE_FROM = 15;
 const BUDGET = 0.25;               // ms a frame for working out chunks
 const TEX_PIECE = 32;              // pictures read back at a time for the block colours
 const TOGGLE_MS = 1000;            // the mod's Cave Mode Toggle Timer
+const BIOME_TINT_OFFSETS = [0, 0, -1, 0, 1, 0, 0, -1, 0, 1];
 // the Nether's fixed sky level for the map (MinimapRenderer.getSunBrightness: its ambient light 0.1
 // x 24 / 15, plus nothing from its sky light factor of 0)
 const NETHER_SKY = Math.min(1, 0.1 * 24 / 15);
@@ -292,7 +293,8 @@ export class Minimap {
     const r = Math.min(N / 2 - 1, Math.ceil(this.reach() / 16) + 1);
     if (changed || ++this.scanT >= 4 || pcx !== this.qcx || pcz !== this.qcz) {
       this.scanT = 0; this.qcx = pcx; this.qcz = pcz;
-      const q = this.queue; q.length = 0;
+      const q = this.queue;
+      let qn = 0;
       const shown = w.shownVersion;
       for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
         const cx = pcx + dx, cz = pcz + dz, s = (cz & MASK) * N + (cx & MASK);
@@ -302,17 +304,14 @@ export class Minimap {
           continue;
         }
         const v = shown ? shown.get(cx + ',' + cz) || 0 : 0;
-        if (this.owner[s] !== c || this.ver[s] !== v || this.mode[s] !== key) q.push(dx * dx + dz * dz, cx, cz, v);
+        if (this.owner[s] !== c || this.ver[s] !== v || this.mode[s] !== key) {
+          const entry = q[qn] || (q[qn] = {});
+          entry.dist = dx * dx + dz * dz; entry.cx = cx; entry.cz = cz; entry.version = v;
+          qn++;
+        }
       }
-      // nearest first
-      if (q.length > 4) {
-        const idx = [];
-        for (let i = 0; i < q.length; i += 4) idx.push(i);
-        idx.sort((a, b) => q[a] - q[b]);
-        const out = [];
-        for (const i of idx) out.push(q[i], q[i + 1], q[i + 2], q[i + 3]);
-        this.queue = out;
-      }
+      q.length = qn;
+      if (qn > 1) q.sort((a, b) => a.dist - b.dist);
       this.qi = 0;
     }
     const q = this.queue;
@@ -321,8 +320,7 @@ export class Minimap {
     if (!this.meanColours(t0)) return;
     while (this.qi < q.length) {
       if (made && performance.now() - t0 > BUDGET) break;
-      const cx = q[this.qi + 1], cz = q[this.qi + 2], v = q[this.qi + 3];
-      this.qi += 4;
+      const entry = q[this.qi++], cx = entry.cx, cz = entry.cz, v = entry.version;
       const c = w.chunkXZ(cx, cz);
       if (!c) continue;
       const s = (cz & MASK) * N + (cx & MASK);
@@ -495,11 +493,10 @@ export class Minimap {
         const ch = x < 0 ? we : x > 15 ? e : z < 0 ? n : s;
         return ch && ch.biome ? ch.biome[((z & 15) << 4) | (x & 15)] : own[(Math.max(0, Math.min(15, z)) << 4) | Math.max(0, Math.min(15, x))];
       };
-      const S5 = [0, 0, -1, 0, 1, 0, 0, -1, 0, 1];
       for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
         let gr = 0, gg = 0, gb = 0, fr = 0, fg = 0, fb = 0, wr = 0, wg = 0, wb = 0;
-        for (let k = 0; k < 10; k += 2) {
-          const b = bio(x + S5[k], z + S5[k + 1]), G = C.grass[b], F = C.leaf[b], W = C.water[b];
+        for (let k = 0; k < BIOME_TINT_OFFSETS.length; k += 2) {
+          const b = bio(x + BIOME_TINT_OFFSETS[k], z + BIOME_TINT_OFFSETS[k + 1]), G = C.grass[b], F = C.leaf[b], W = C.water[b];
           gr += G >> 16; gg += (G >> 8) & 255; gb += G & 255;
           fr += F >> 16; fg += (F >> 8) & 255; fb += F & 255;
           wr += W >> 16; wg += (W >> 8) & 255; wb += W & 255;
@@ -816,7 +813,13 @@ export class Minimap {
     out.n = 0;
     let sig = 0;
     const fy = feet.y;
+    const showPlayer = this.o.get('minimapRadarPlayers') !== false;
+    const showHostile = this.o.get('minimapRadarHostile') !== false;
+    const showMob = this.o.get('minimapRadarMobs') !== false;
+    const showItem = this.o.get('minimapRadarItems') !== false;
+    const showOther = this.o.get('minimapRadarOther') !== false;
     const add = (x, y, z, k, unlimited) => {
+      if (k === 'player' ? !showPlayer : k === 'hostile' ? !showHostile : k === 'mob' ? !showMob : k === 'item' ? !showItem : !showOther) return;
       const dx = x - feet.x, dz = z - feet.z;
       if (Math.abs(dx) > reach || Math.abs(dz) > reach) return;
       // the height: left out past 20 blocks up or down (not players); darker from 5 blocks under you
@@ -836,27 +839,31 @@ export class Minimap {
         // living things (but armour stands) are mobs, hostile or not; anything else is "other"
         const living = e.maxHealth !== undefined && e.constructor.name !== 'ArmorStand';
         const k = living ? (e.constructor.HOSTILE ? 'hostile' : 'mob') : 'other';
+        if (k === 'hostile' ? !showHostile : !showMob) continue;
         const p = e.prev || e.pos;
         add(p.x + (e.pos.x - p.x) * alpha, p.y + (e.pos.y - p.y) * alpha, p.z + (e.pos.z - p.z) * alpha, k, false);
       }
     }
     const D = game.drops;
     if (D) {
-      if (D.items) for (const it of D.items) if (it && it.pos && !it.removed) add(it.pos.x, it.pos.y, it.pos.z, 'item', false);
+      if (showItem && D.items) for (const it of D.items) if (it && it.pos && !it.removed) add(it.pos.x, it.pos.y, it.pos.z, 'item', false);
       // experience orbs are entities of their own in the game: "other"
-      if (D.orbs) for (const ob of D.orbs) if (ob && ob.pos && !ob.gone) add(ob.pos.x, ob.pos.y, ob.pos.z, 'other', false);
+      if (showOther && D.orbs) for (const ob of D.orbs) if (ob && ob.pos && !ob.gone) add(ob.pos.x, ob.pos.y, ob.pos.z, 'other', false);
     }
     const P = game.net && game.net.players;
-    if (P && P.list) {
+    if (showPlayer && P && P.list) {
       for (const r of P.list.values()) {
-        if (!r.av || !r.P || !r.av.mesh || !r.av.mesh.visible) continue;
-        add(r.P.pos.x, r.P.pos.y, r.P.pos.z, 'player', true);
+        const p = r.st || r.P && r.P.pos;
+        if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z)) continue;
+        add(p.x, p.y, p.z, 'player', true);
       }
     }
     // the categories' render order: other, items, mobs, hostile mobs, players on top
-    if (out.n > 1) {
-      const live = out.slice(0, out.n).sort((a, b) => a.ord - b.ord);
-      for (let i = 0; i < live.length; i++) out[i] = live[i];
+    for (let i = 1; i < out.n; i++) {
+      const dot = out[i];
+      let j = i;
+      while (j > 0 && out[j - 1].ord > dot.ord) { out[j] = out[j - 1]; j--; }
+      out[j] = dot;
     }
     out.sig = sig + ':' + out.n;
     return out;
@@ -888,6 +895,9 @@ export class MinimapSettingsScreen extends OptionsListScreen {
       new WidgetRow(cyc('Auto Cave Mode', 'minimapCave', ['auto', 'off'], v => v === 'auto' ? '3x3 Ceiling' : 'OFF', 'Under a 3x3 ceiling the map shows the open spaces from just over your head down. The Nether is always shown this way.'),
         tog('Lighting', 'minimapLighting', 'The map darkens at night and in caves, and torches light it, as the world does.')),
       new WidgetRow(off('Display Current Biome', 'minimapBiome')),
+      new WidgetRow(tog('Player Radar', 'minimapRadarPlayers'), tog('Hostile Mob Radar', 'minimapRadarHostile')),
+      new WidgetRow(tog('Passive Mob Radar', 'minimapRadarMobs'), tog('Item Radar', 'minimapRadarItems')),
+      new WidgetRow(tog('Other Entity Radar', 'minimapRadarOther')),
     ];
     // a lone half-width button stays half width
     list.entries[4].children[0].wide = false;

@@ -17,10 +17,11 @@
    and the particles (smoke puffs, crits, hearts, flames, explosions), each
    one instanced draw.
 --------------------------------------------------------------------------- */
-import { COMMON, SHADOW, TONEMAP, LDR, LIGHTS } from './glsl.js?v=117';
-import { VANILLA } from './vanilla.js?v=117';
-import { lightDefines } from './materials.js?v=117';
-import { GLINT } from './armor.js?v=117';
+import { COMMON, SHADOW, TONEMAP, LDR, LIGHTS } from './glsl.js?v=118';
+import { VANILLA } from './vanilla.js?v=118';
+import { lightDefines } from './materials.js?v=118';
+import { GLINT } from './armor.js?v=118';
+import { CHAMS_CUSTOM_STYLES } from './chams-styles.js?v=118';
 const THREE = window.THREE;
 
 export const ATLAS = 2048;           // the mob texture atlas, in pixels a side (2048: room for every mob of the game)
@@ -91,6 +92,8 @@ void main() { o = uGlow; }`;
 const FS = /* glsl */`
 uniform sampler2D uAtlas, uAmbient;
 uniform vec3 cameraPosition, uLightDir;
+uniform vec3 uChamsColor;
+uniform float uChamsEnabled, uChamsStyle, uChamsTint, uChamsGlow, uChamsTransparency, uChamsOpacity;
 uniform float uFrame;
 uniform float uTime;
 uniform sampler2D uNoise;
@@ -114,6 +117,24 @@ in vec3 vWorld; in vec3 vN; in vec2 vUv; in vec4 vL; in vec3 vTint; in vec3 vG;
 in vec3 vKeep; in vec3 vAdd;
 #endif
 layout(location = 0) out vec4 outColor;
+` + CHAMS_CUSTOM_STYLES + /* glsl */`
+vec3 chamsColor(vec3 color, vec2 uv, float t) {
+  vec3 N = normalize(vN);
+  vec3 V = normalize(cameraPosition - vWorld);
+  vec2 patternUv = chamsWorldUv(vWorld);
+  if (uChamsStyle < 0.5) return mix(color, uChamsColor, uChamsTint);
+  if (uChamsStyle < 1.5) {
+    float shimmer = pow(max(0.0, sin((patternUv.x + patternUv.y * 0.5 - t * 0.15) * 26.0)), 4.0);
+    return color + uChamsColor * shimmer * 0.75;
+  }
+  if (uChamsStyle < 2.5) {
+    float edge = pow(1.0 - max(dot(N, V), 0.0), 2.0);
+    vec3 spectrum = chamsCustomSpectrum(t * 0.2 + patternUv.x * 0.18 + patternUv.y * 0.08 + edge * 0.2);
+    return mix(color, spectrum, 0.48 + edge * 0.34) + uChamsColor * edge * 0.28;
+  }
+  if (uChamsStyle < 3.5) return mix(color, uChamsColor, 0.2 + 0.55 * (0.5 + 0.5 * sin(t)));
+  return chamsCustomStyle(color, patternUv, t, N, V, uChamsStyle);
+}
 vec3 ambientAt(vec3 n) {
   vec3 up = texelFetch(uAmbient, ivec2(0, 0), 0).rgb;
   vec3 side = texelFetch(uAmbient, ivec2(1, 0), 0).rgb;
@@ -159,6 +180,10 @@ void main() {
   vec3 blockL = block > 0.0 ? blockLight(block, uDim > 0.5 ? 0.0 : sky * sky * sat(lum(sunC) * 0.3)) : vec3(0.0);
   vec3 light = (diffuse * PI + amb + blockL + lightFloor() + fullbrightFill(diffuse * PI + amb + blockL)) / PI;
   vec3 col = albedo * light;
+  if (uChamsEnabled > 0.5) {
+    col = mix(col, chamsColor(col, vUv, uTime), clamp(uChamsEffectAmount, 0.0, 1.0));
+    col += uChamsColor * uChamsGlow * clamp(uChamsEffectAmount, 0.0, 1.0);
+  }
   // enchanted armour: the glint added unlit on the screen's own colour, as bright in any light (as on the player, render/avatar.js)
   vec3 g = vG.z > 0.5 ? glintAt(vG.xy, uClock) : vec3(0.0);
 #ifdef LDR
@@ -167,7 +192,8 @@ void main() {
 #else
   if (vG.z > 0.5) col = glintOver(col, g, max(texture(uExpoTex, vec2(0.5)).r, 0.02));
 #endif
-  outColor = vec4(col, 1.0);
+  float alpha = uChamsEnabled > 0.5 && uChamsTransparency > 0.5 ? uChamsOpacity : 1.0;
+  outColor = vec4(col, alpha);
 }`;
 
 /* Fast graphics (the game with no shaders): a mob is its skin, the game's two
@@ -191,7 +217,12 @@ void main() {
   c *= entityShade(N) * lightmapAt(vL.x, vL.y);
   // enchanted armour: the glint on top, unlit, as the game draws it
   if (vG.z > 0.5) c += glintAt(vG.xy, uClock);
-  outColor = vec4(linearFog(c, fogDistance(vWorld - cameraPosition)), 1.0);
+  if (uChamsEnabled > 0.5) {
+    c = mix(c, chamsColor(c, vUv, uClock, N, normalize(cameraPosition - vWorld), vWorld), clamp(uChamsEffectAmount, 0.0, 1.0));
+    c += uChamsColor * uChamsGlow * clamp(uChamsEffectAmount, 0.0, 1.0);
+  }
+  float alpha = uChamsEnabled > 0.5 && uChamsTransparency > 0.5 ? uChamsOpacity : 1.0;
+  outColor = vec4(linearFog(c, fogDistance(vWorld - cameraPosition)), alpha);
 }`;
 const PART_FS_VANILLA = VANILLA + /* glsl */`
 uniform sampler2D uSheet;
@@ -356,6 +387,7 @@ export function modelGeometry(model) {
 export class EntityMeshes {
   constructor(R, atlasCanvas, sheetCanvas) {
     this.R = R;
+    R.entityMeshes = this;
     const U = R.U, opts = R.opts;
     this.group = new THREE.Group();
     this.group.name = 'entities';

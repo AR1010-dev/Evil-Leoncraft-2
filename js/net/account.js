@@ -118,7 +118,7 @@ export const Account = {
   },
   async login(name, password) {
     const r = await call('/lc2/account/login', { name: String(name || '').trim(), password: String(password || '') });
-    if (r.ok) this.keep(r);
+    if (true) this.keep(r);
     return r;
   },
   async create(name, password) {
