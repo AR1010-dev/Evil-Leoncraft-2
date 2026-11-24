@@ -1311,7 +1311,7 @@ export const ITEM_LIST = [
 {"d":"Golden Spear","dur":32,"ench":["weapon","fire_aspect","melee_weapon","lunge","durability","sharp_weapon","vanishing"],"n":"golden_spear","rep":["gold_ingot"],"s":1,"tab":"combat"},
 {"d":"Diamond Spear","dur":1561,"ench":["weapon","fire_aspect","melee_weapon","lunge","durability","sharp_weapon","vanishing"],"n":"diamond_spear","rep":["diamond"],"s":1,"tab":"combat"},
 {"d":"Netherite Spear","dur":2031,"ench":["weapon","fire_aspect","melee_weapon","lunge","durability","sharp_weapon","vanishing"],"n":"netherite_spear","rep":["netherite_ingot"],"s":1,"tab":"combat"},
-{"d":"Totem of Undying","n":"totem_of_undying","s":1,"tab":"combat"},
+{"d":"Totem of Undying","n":"totem_of_undying","s":64,"tab":"combat"},
 {"d":"Shulker Shell","n":"shulker_shell","s":64,"tab":"ingredients"},
 {"d":"Iron Nugget","n":"iron_nugget","s":64,"tab":"ingredients"},
 {"d":"Copper Nugget","n":"copper_nugget","s":64,"tab":"ingredients"},

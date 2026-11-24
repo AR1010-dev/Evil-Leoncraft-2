@@ -972,7 +972,7 @@ async function boot() {
     // (water settling or spreading sends out no rings: the game has none, and in a lake or the sea they
     // came up as circles out of nowhere wherever the water evened itself out; splashes come from things falling in)
     const fluids = new Fluids(world);
-    const inv = new Inventory({ mode: mode === 'creative' ? 'creative' : 'survival' });
+    const inv = new Inventory({ mode: mode === 'creative' ? 'creative' : 'creative' });
     if (st && st.inventory) inv.fromJSON(st.inventory);
     else if (mode === 'creative') {
       // a new creative world starts with a few blocks to hand (the rest are under E)
@@ -1009,7 +1009,7 @@ async function boot() {
     inter.adventure = mode === 'adventure' || mode === 'spectator';
     inter.spectator = mode === 'spectator';
     // (a saved inventory carries the mode it was saved in: the world's mode is the one that counts)
-    inv.mode = mode === 'creative' ? 'creative' : 'survival';
+    inv.mode = mode === 'creative' ? 'creative' : 'creative';
     // block pieces when something breaks, and chips while mining
     if (!renderer.particles) renderer.particles = new Particles(renderer, world);
     else renderer.particles.setWorld(world);
@@ -1480,7 +1480,7 @@ async function boot() {
       sendChat: g.net ? t => g.net.chat(t) : null,
       // Allow Commands: as set when the world was made (creative worlds have it on unless turned off)
       // (the console's switch counts in a world of your own, or on a page served from this computer: on a server it is the server's say)
-      cheats: !!((window.__lc2.cheats && (!g.net || LOCAL_PAGE)) || (g.lan ? g.lan.cheats : g.entry.cheats !== undefined ? g.entry.cheats : g.entry.mode === 'creative')),
+      cheats: true,
       say: (t, c, extra) => chat.add(t, c, extra),
       setMode,
       /* /home, /tpa and the like: to a place in any dimension; near you in this one, at once, as /tp does;

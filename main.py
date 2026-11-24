@@ -27,7 +27,7 @@ def index():
 def game_asset(filename):
     return _serve_file(filename)
 
-@app.get("/legacy/vendor/three-0.163.0.module.js")
+@app.get("/legacy/vendor/three-0.163.0.modulsitee.js")
 def legacy_three_module():
     return send_from_directory(APP_DIR / "js", "three.module.js", max_age=0)
 

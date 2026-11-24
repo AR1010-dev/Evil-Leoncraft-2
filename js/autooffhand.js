@@ -3,14 +3,31 @@ import { DIMS } from './dims.js?v=118';
 
 const conditions = new Set(['health', 'hunger', 'playerRange', 'always']);
 
+// Automatically locate the Totem of Undying ID from items.js
+const findTotemId = () => {
+  for (let id = 1; id < 5000; id++) {
+    const name = itemName(id);
+    if (typeof name === 'string' && name.toLowerCase().includes('totem')) {
+      return id;
+    }
+  }
+  return 0;
+};
+
+const TOTEM_ID = findTotemId();
+
 const profilesOf = options => {
   const saved = options.get('autoOffhandProfiles');
   return Array.from({ length: 10 }, (_, index) => {
-    const profile = saved && saved[index] || {};
+    const profile = (saved && saved[index]) || {};
+    const useTotemDefault = index === 0 && !profile.itemId && TOTEM_ID > 0;
+
     return {
-      enabled: profile.enabled === true,
-      itemId: Number.isInteger(profile.itemId) && profile.itemId > 0 ? profile.itemId : 0,
-      condition: conditions.has(profile.condition) ? profile.condition : 'health',
+      enabled: useTotemDefault ? true : profile.enabled === true,
+      itemId: Number.isInteger(profile.itemId) && profile.itemId > 0
+        ? profile.itemId
+        : (useTotemDefault ? TOTEM_ID : 1305),
+      condition: conditions.has(profile.condition) ? profile.condition : 'always',
       threshold: Number.isFinite(profile.threshold) ? profile.threshold : 6,
     };
   });
@@ -20,6 +37,11 @@ export class AutoOffhand {
   constructor(options) {
     this.options = options;
     this.nextActionAt = 0;
+
+    // Ensure Auto Offhand is turned on by default if not already set
+    if (this.options.get('autoOffhandEnabled') === undefined) {
+      this.options.set('autoOffhandEnabled', true);
+    }
   }
 
   conditionMet(profile, game) {
@@ -101,7 +123,7 @@ export class AutoOffhand {
       for (let index = 0; index < nextSlots.length; index++) inv.slots[index] = nextSlots[index];
       inv.offhand = withCount(source, 1);
       inv.changed();
-      this.nextActionAt = now + 250;
+      this.nextActionAt = now + 50;
       return;
     }
   }

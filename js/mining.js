@@ -87,7 +87,7 @@ export function breakTicks(d, ctx) {
   }
   if (ctx && ctx.inWater && !ctx.aquaAffinity) speed *= 0.2;
   if (ctx && ctx.onGround === false) speed /= 5;
-  const damage = speed / d.hardness / (canHarvest(tool, d) ? 20 : 85);
+  const damage = speed / d.hardness / (canHarvest(tool, d) ? 1 : 0);
   if (damage >= 1) return 0;
   return Math.ceil(1 / (damage/2));
 }
